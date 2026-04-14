@@ -1,0 +1,12 @@
+{
+  "extends": "@open-conductor/typescript-config/react-library.json",
+  "include": ["src/renderer/src/**/*"],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "out/renderer",
+    "baseUrl": ".",
+    "paths": {
+      "@renderer/*": ["src/renderer/src/*"]
+    }
+  }
+}

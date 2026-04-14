@@ -1,0 +1,29 @@
+{
+  "name": "@open-conductor/views",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    "./layout": "./src/layout/index.tsx",
+    "./auth": "./src/auth/index.tsx",
+    "./issues": "./src/issues/index.tsx",
+    "./agents": "./src/agents/index.tsx",
+    "./navigation": "./src/navigation/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@open-conductor/core": "workspace:*",
+    "@open-conductor/ui": "workspace:*",
+    "@tanstack/react-query": "^5.0.0",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@open-conductor/eslint-config": "workspace:*",
+    "@open-conductor/typescript-config": "workspace:*",
+    "@types/react": "19.2.2",
+    "eslint": "^9.39.1",
+    "typescript": "5.9.2"
+  }
+}

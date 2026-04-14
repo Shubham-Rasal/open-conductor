@@ -1,0 +1,23 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@open-conductor/ui/styles/tokens.css";
+@import "@open-conductor/ui/styles/base.css";
+@import "./t3-theme.css";
+
+/* Match t3code: class-based dark + descendants */
+@custom-variant dark (&:is(.dark, .dark *));
+
+/* DM Sans / mono: variables for tokens.css @theme; faces loaded in main.tsx */
+:root {
+  --font-sans:
+    "DM Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-mono: "SF Mono", "SFMono-Regular", ui-monospace, Consolas, "Liberation Mono", Menlo,
+    monospace;
+}
+
+/* Tell Tailwind to scan all monorepo packages for class names */
+@source "../../../../../packages/ui/**/*.tsx";
+@source "../../../../../packages/core/**/*.{ts,tsx}";
+@source "../../../../../packages/views/**/*.{ts,tsx}";
+@source "./**/*.tsx";

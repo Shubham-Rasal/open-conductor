@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS agent_task_queue;
+DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS issues;
+DROP TABLE IF EXISTS agent_runtimes;
+DROP TABLE IF EXISTS agents;
+DROP TABLE IF EXISTS workspace_members;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS workspaces;
