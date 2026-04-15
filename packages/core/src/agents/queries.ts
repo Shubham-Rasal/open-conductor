@@ -37,6 +37,7 @@ export function agentListOptions(api: ApiClient, wsId: string) {
       })),
     // Empty wsId would produce /api/workspaces//agents → router 404 ("404 page not found")
     enabled: !!wsId,
+    staleTime: 10_000,
   });
 }
 

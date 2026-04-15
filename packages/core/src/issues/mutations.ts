@@ -104,7 +104,7 @@ export function useDeleteIssue() {
 // ─── Create Comment ────────────────────────────────────────────────────────
 
 export function useCreateComment() {
-  const { apiClient } = useCoreContext();
+  const { apiClient, workspaceId } = useCoreContext();
   const qc = useQueryClient();
 
   return useMutation({
@@ -112,6 +112,7 @@ export function useCreateComment() {
       apiClient.post<Comment>(`/api/issues/${issueId}/comments`, { content }),
     onSuccess: (_data, { issueId }) => {
       qc.invalidateQueries({ queryKey: issueKeys.comments(issueId) });
+      qc.invalidateQueries({ queryKey: issueKeys.tasks(workspaceId, issueId) });
     },
   });
 }

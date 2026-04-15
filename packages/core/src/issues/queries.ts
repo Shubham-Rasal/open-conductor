@@ -20,6 +20,7 @@ export function issueListOptions(api: ApiClient, wsId: string) {
     queryFn: () => api.get<ListIssuesResponse>(`/api/workspaces/${wsId}/issues`),
     select: (data) => data.issues,
     enabled: !!wsId,
+    staleTime: 10_000,
   });
 }
 

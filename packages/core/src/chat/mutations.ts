@@ -3,12 +3,21 @@ import { useCoreContext } from "../platform/CoreProvider";
 import { chatKeys } from "./queries";
 import type { ProposedPlanIssue, WorkspaceMessage } from "../types";
 
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export function usePostWorkspaceMessage() {
   const { apiClient, workspaceId } = useCoreContext();
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: (body: { content: string; respond_with_assistant?: boolean }) =>
+    mutationFn: (body: {
+      content: string;
+      respond_with_assistant?: boolean;
+      history?: HistoryMessage[];
+    }) =>
       apiClient.post<{ message: WorkspaceMessage; stream_id?: string }>(
         `/api/workspaces/${workspaceId}/messages`,
         body
