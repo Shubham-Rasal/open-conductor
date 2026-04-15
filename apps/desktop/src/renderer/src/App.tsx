@@ -34,7 +34,7 @@ function DashboardLayout() {
           aria-hidden
         />
         <div
-          className={`drag-region relative z-10 h-10 w-full shrink-0 bg-background/25 dark:bg-background/20 ${isMac ? "pl-[78px]" : ""}`}
+          className={`drag-region relative z-10 h-10 w-full shrink-0 bg-background dark:bg-background ${isMac ? "pl-[78px]" : ""}`}
           aria-hidden
         />
         {settingsFullScreen ? (
@@ -42,10 +42,10 @@ function DashboardLayout() {
             <Outlet />
           </div>
         ) : (
-          <div className="relative flex min-h-0 flex-1 bg-background/40 backdrop-blur-2xl dark:bg-background/35">
+          <div className="relative flex min-h-0 flex-1 bg-background/75 backdrop-blur-2xl dark:bg-background/70">
             <DesktopAppSidebar />
 
-            <main className="relative min-w-0 flex-1 overflow-hidden border-l border-border/60 bg-background/45 backdrop-blur-3xl dark:border-white/[0.06] dark:bg-background/30">
+            <main className="relative min-w-0 flex-1 overflow-hidden border-l border-border/60 bg-background/80 backdrop-blur-3xl dark:border-white/[0.06] dark:bg-background/70">
               <Outlet />
             </main>
           </div>
