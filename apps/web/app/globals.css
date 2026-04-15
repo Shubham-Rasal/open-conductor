@@ -1,30 +1,41 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-}
-
-* {
+*, *::before, *::after {
   box-sizing: border-box;
-  padding: 0;
   margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: oklch(98.5% 0.008 80);
+  --bg-subtle: oklch(95% 0.012 75);
+  --bg-muted: oklch(92% 0.015 75);
+  --border: oklch(85% 0.015 75);
+  --border-strong: oklch(72% 0.02 75);
+  --text: oklch(16% 0.018 80);
+  --text-secondary: oklch(42% 0.018 80);
+  --text-tertiary: oklch(60% 0.015 75);
+  --accent: oklch(62% 0.14 55);
+  --accent-hover: oklch(55% 0.14 55);
+  --accent-subtle: oklch(95% 0.04 65);
+  --accent-muted: oklch(90% 0.06 65);
+
+  --font-sans: var(--font-dm-sans), system-ui, sans-serif;
+  --font-serif: var(--font-instrument-serif), Georgia, serif;
+
+  color-scheme: light;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
 }
 
 a {
@@ -32,19 +43,13 @@ a {
   text-decoration: none;
 }
 
-.imgDark {
-  display: none;
+img, svg {
+  display: block;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
-
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
-  }
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
 }

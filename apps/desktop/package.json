@@ -7,6 +7,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "package": "electron-vite build && electron-builder --config electron-builder.yml --publish never",
+    "release": "electron-vite build && electron-builder --config electron-builder.yml --publish always",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
   },
@@ -32,6 +34,7 @@
     "@types/react-dom": "19.2.2",
     "@vitejs/plugin-react": "^4.4.1",
     "electron": "^36.1.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^3.1.0",
     "eslint": "^9.39.1",
     "typescript": "5.9.2",

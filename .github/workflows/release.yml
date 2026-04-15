@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Build desktop app on each platform ───────────────
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS — builds universal DMG + ZIP (arm64 + x64)
+          - os: macos-latest
+            platform: mac
+            artifact_glob: "apps/desktop/dist/*.{dmg,zip,yml,blockmap}"
+
+          # Windows — builds NSIS installer + portable
+          - os: windows-latest
+            platform: win
+            artifact_glob: "apps/desktop/dist/*.{exe,yml,blockmap}"
+
+          # Linux — builds AppImage + deb
+          - os: ubuntu-22.04
+            platform: linux
+            artifact_glob: "apps/desktop/dist/*.{AppImage,deb,yml}"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # Linux needs these libs for Electron
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            libnss3-dev \
+            libxss-dev \
+            libxtst-dev \
+            libatspi2.0-dev \
+            libsecret-1-dev \
+            fuse
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Build shared packages that desktop depends on
+      - name: Build packages
+        run: pnpm exec turbo run build --filter=@open-conductor/core --filter=@open-conductor/ui --filter=@open-conductor/views
+
+      # Package the desktop app and publish to GitHub Releases
+      - name: Package & publish
+        run: pnpm --filter @open-conductor/desktop run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Disable code signing on CI unless you configure certificates
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # macOS notarization (optional — set these secrets to enable)
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: apps/desktop/dist/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ── Deploy showcase website ───────────────────────────
+  deploy-web:
+    needs: build
+    runs-on: ubuntu-22.04
+    if: always() && needs.build.result != 'cancelled'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web
+        run: pnpm exec turbo run build --filter=web
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Uncomment and configure your preferred deployment target:
+      #
+      # ── Vercel ──────────────────────────────────────────
+      # - name: Deploy to Vercel
+      #   uses: amondnet/vercel-action@v25
+      #   with:
+      #     vercel-token: ${{ secrets.VERCEL_TOKEN }}
+      #     vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+      #     vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+      #     working-directory: apps/web
+      #     vercel-args: --prod
+      #
+      # ── Cloudflare Pages ────────────────────────────────
+      # - name: Deploy to Cloudflare Pages
+      #   uses: cloudflare/wrangler-action@v3
+      #   with:
+      #     apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      #     accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      #     command: pages deploy apps/web/.next/standalone --project-name=open-conductor

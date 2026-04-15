@@ -133,6 +133,9 @@ func main() {
 			_, _ = w.Write([]byte(`{"workspace_id":"` + formatUUID(localWs.ID.Bytes) + `"}`))
 		})
 
+		// Token-gated tool endpoints used by agentic chat sessions (no JWT needed).
+		handler.RegisterToolRoutes(r)
+
 		// All other routes: optional auth — works without login, falls back to guest user
 		r.Group(func(r chi.Router) {
 			r.Use(appMiddleware.OptionalAuth(jwtSecret, guestUserIDStr))

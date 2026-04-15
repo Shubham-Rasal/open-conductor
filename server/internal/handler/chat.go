@@ -5,11 +5,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -20,6 +22,41 @@ import (
 	db "github.com/Shubham-Rasal/open-conductor/server/pkg/db/generated"
 )
 
+// ── Tool session registry ─────────────────────────────────────────────────────
+// Each agentic chat session gets a short-lived token that the CLI agent can use
+// to call workspace tool endpoints without needing JWT auth.
+
+type toolSession struct {
+	workspaceID pgtype.UUID
+	store       *Store
+}
+
+var (
+	toolSessionsMu sync.RWMutex
+	toolSessions   = map[string]toolSession{}
+)
+
+func registerToolSession(token string, wsID pgtype.UUID, s *Store) {
+	toolSessionsMu.Lock()
+	toolSessions[token] = toolSession{workspaceID: wsID, store: s}
+	toolSessionsMu.Unlock()
+}
+
+func unregisterToolSession(token string) {
+	toolSessionsMu.Lock()
+	delete(toolSessions, token)
+	toolSessionsMu.Unlock()
+}
+
+func lookupToolSession(token string) (toolSession, bool) {
+	toolSessionsMu.RLock()
+	defer toolSessionsMu.RUnlock()
+	s, ok := toolSessions[token]
+	return s, ok
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+
 func RegisterChatRoutes(r chi.Router, s *Store) {
 	r.Route("/workspaces/{workspaceId}/messages", func(r chi.Router) {
 		r.Get("/", listWorkspaceMessages(s))
@@ -27,6 +64,19 @@ func RegisterChatRoutes(r chi.Router, s *Store) {
 		r.Post("/plan", postWorkspacePlan(s))
 	})
 }
+
+// RegisterToolRoutes registers the unauthenticated (token-gated) tool endpoints
+// that the CLI agent uses during agentic chat sessions.
+func RegisterToolRoutes(r chi.Router) {
+	r.Route("/tool/{token}", func(r chi.Router) {
+		r.Get("/issues", toolListIssues)
+		r.Post("/issues", toolCreateIssue)
+		r.Patch("/issues/{issueId}/assign", toolAssignIssue)
+		r.Get("/agents", toolListAgents)
+	})
+}
+
+// ── Message list ──────────────────────────────────────────────────────────────
 
 func listWorkspaceMessages(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -60,9 +110,11 @@ func listWorkspaceMessages(s *Store) http.HandlerFunc {
 	}
 }
 
+// ── Post message ──────────────────────────────────────────────────────────────
+
 type postMessageRequest struct {
-	Content               string `json:"content"`
-	RespondWithAssistant  *bool  `json:"respond_with_assistant"`
+	Content              string `json:"content"`
+	RespondWithAssistant *bool  `json:"respond_with_assistant"`
 }
 
 func postWorkspaceMessage(s *Store) http.HandlerFunc {
@@ -147,6 +199,8 @@ func workspaceMessageJSON(m db.WorkspaceMessage) map[string]any {
 	return out
 }
 
+// ── Agentic assistant runner ───────────────────────────────────────────────────
+
 func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userMsg db.WorkspaceMessage, streamID string) {
 	tool, path := pickChatAgent(ctx)
 	if path == "" {
@@ -154,6 +208,7 @@ func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userM
 		broadcastEvent("chat:stream", map[string]any{
 			"workspace_id": formatUUID(ws.ID),
 			"stream_id":    streamID,
+			"kind":         "text",
 			"delta":        "[No coding agent CLI found on PATH. Install claude, codex, or opencode.]",
 			"done":         true,
 		})
@@ -169,6 +224,7 @@ func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userM
 		broadcastEvent("chat:stream", map[string]any{
 			"workspace_id": formatUUID(ws.ID),
 			"stream_id":    streamID,
+			"kind":         "text",
 			"delta":        err.Error(),
 			"done":         true,
 		})
@@ -185,21 +241,96 @@ func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userM
 		}
 	}
 
-	prompt := "You are a planning assistant for a software workspace. The user message follows. Reply concisely with actionable next steps and suggested issue titles (bullet list).\n\nUser:\n" + userMsg.Content
+	// Fetch workspace context: issues + agents
+	issues, _ := s.Q.ListIssues(ctx, ws.ID)
+	agents, _ := s.Q.ListAgents(ctx, ws.ID)
+
+	var issuesCtx strings.Builder
+	if len(issues) == 0 {
+		issuesCtx.WriteString("  (no issues yet)\n")
+	}
+	for _, iss := range issues {
+		desc := ""
+		if iss.Description != nil {
+			desc = " — " + *iss.Description
+		}
+		num := ""
+		if iss.Number != nil {
+			num = fmt.Sprintf("#%d ", *iss.Number)
+		}
+		issuesCtx.WriteString(fmt.Sprintf("  %s[%s] %s (%s)%s\n", num, iss.Status, iss.Title, iss.Priority, desc))
+	}
+
+	var agentsCtx strings.Builder
+	if len(agents) == 0 {
+		agentsCtx.WriteString("  (no agents connected)\n")
+	}
+	for _, ag := range agents {
+		agentsCtx.WriteString(fmt.Sprintf("  id=%s  name=%q  status=%s\n", formatUUID(ag.ID), ag.Name, ag.Status))
+	}
+
+	// Per-session tool token
+	tb := make([]byte, 16)
+	_, _ = rand.Read(tb)
+	toolToken := hex.EncodeToString(tb)
+	registerToolSession(toolToken, ws.ID, s)
+	defer unregisterToolSession(toolToken)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	baseURL := fmt.Sprintf("http://localhost:%s/tool/%s", port, toolToken)
+
+	systemPrompt := fmt.Sprintf(`You are an agentic planning assistant for the software workspace %q.
+
+## Current backlog
+%s
+## Connected agents
+%s
+## Workspace tools
+You have access to these HTTP tools (use curl). All calls are pre-authenticated.
+
+List issues:
+  curl -s '%s/issues'
+
+Create an issue:
+  curl -s -X POST '%s/issues' \
+    -H 'Content-Type: application/json' \
+    -d '{"title":"…","description":"…","priority":"medium","status":"backlog","assignee_type":"agent"}'
+  (priority: no_priority | low | medium | high | urgent)
+  (assignee_type: agent | member)
+
+Assign an issue to an agent:
+  curl -s -X PATCH '%s/issues/{issue_id}/assign' \
+    -H 'Content-Type: application/json' \
+    -d '{"agent_id":"…"}'
+
+List agents (to get agent IDs for assignment):
+  curl -s '%s/agents'
+
+Be proactive: check the current backlog, create issues, and assign them to agents as appropriate.`,
+		ws.Name,
+		issuesCtx.String(),
+		agentsCtx.String(),
+		baseURL, baseURL, baseURL, baseURL,
+	)
 
 	execCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
 	opts := agentpkg.ExecOptions{
-		Cwd:      cwd,
-		Timeout:  10 * time.Minute,
-		MaxTurns: 8,
+		Cwd:          cwd,
+		SystemPrompt: systemPrompt,
+		Timeout:      10 * time.Minute,
+		MaxTurns:     20,
 	}
-	session, err := backend.Execute(execCtx, prompt, opts)
+	session, err := backend.Execute(execCtx, userMsg.Content, opts)
 	if err != nil {
 		broadcastEvent("chat:stream", map[string]any{
 			"workspace_id": formatUUID(ws.ID),
 			"stream_id":    streamID,
+			"kind":         "text",
 			"delta":        err.Error(),
 			"done":         true,
 		})
@@ -208,16 +339,48 @@ func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userM
 
 	var full strings.Builder
 	for msg := range session.Messages {
-		if msg.Type == agentpkg.MessageText && msg.Content != "" {
-			full.WriteString(msg.Content)
+		switch msg.Type {
+		case agentpkg.MessageText:
+			if msg.Content != "" {
+				full.WriteString(msg.Content)
+				broadcastEvent("chat:stream", map[string]any{
+					"workspace_id": formatUUID(ws.ID),
+					"stream_id":    streamID,
+					"kind":         "text",
+					"delta":        msg.Content,
+				})
+			}
+		case agentpkg.MessageThinking:
+			if msg.Content != "" {
+				broadcastEvent("chat:stream", map[string]any{
+					"workspace_id": formatUUID(ws.ID),
+					"stream_id":    streamID,
+					"kind":         "thinking",
+					"delta":        msg.Content,
+				})
+			}
+		case agentpkg.MessageToolUse:
+			inputJSON, _ := json.Marshal(msg.Input)
 			broadcastEvent("chat:stream", map[string]any{
 				"workspace_id": formatUUID(ws.ID),
 				"stream_id":    streamID,
-				"delta":        msg.Content,
-				"done":         false,
+				"kind":         "tool_use",
+				"tool":         msg.Tool,
+				"call_id":      msg.CallID,
+				"input":        string(inputJSON),
+			})
+		case agentpkg.MessageToolResult:
+			broadcastEvent("chat:stream", map[string]any{
+				"workspace_id": formatUUID(ws.ID),
+				"stream_id":    streamID,
+				"kind":         "tool_result",
+				"tool":         msg.Tool,
+				"call_id":      msg.CallID,
+				"output":       msg.Output,
 			})
 		}
 	}
+
 	res := <-session.Result
 	text := full.String()
 	if res.Output != "" && text == "" {
@@ -246,6 +409,7 @@ func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userM
 	broadcastEvent("chat:stream", map[string]any{
 		"workspace_id": formatUUID(ws.ID),
 		"stream_id":    streamID,
+		"kind":         "text",
 		"delta":        "",
 		"done":         true,
 	})
@@ -269,11 +433,13 @@ func pickChatAgent(ctx context.Context) (agentpkg.DetectedTool, string) {
 	return agentpkg.DetectedTool{}, ""
 }
 
+// ── Plan endpoint ─────────────────────────────────────────────────────────────
+
 type proposedIssue struct {
-	Title            string  `json:"title"`
-	Description      *string `json:"description"`
-	Priority         string  `json:"priority"`
-	SuggestedAssignee string `json:"suggested_assignee"` // "agent" | "member"
+	Title             string  `json:"title"`
+	Description       *string `json:"description"`
+	Priority          string  `json:"priority"`
+	SuggestedAssignee string  `json:"suggested_assignee"` // "agent" | "member"
 }
 
 type postPlanRequest struct {
@@ -353,7 +519,6 @@ Goal:
 			text = res.Output
 		}
 		text = strings.TrimSpace(text)
-		// Strip markdown code fences if present
 		if strings.HasPrefix(text, "```") {
 			lines := strings.Split(text, "\n")
 			if len(lines) > 2 {
@@ -373,4 +538,208 @@ Goal:
 		}
 		writeJSON(w, map[string]any{"issues": issues})
 	}
+}
+
+// ── Tool endpoints ─────────────────────────────────────────────────────────────
+// These are called by the CLI agent via curl during agentic sessions.
+
+func toolListIssues(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	sess, ok := lookupToolSession(token)
+	if !ok {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+	issues, err := sess.store.Q.ListIssues(r.Context(), sess.workspaceID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	type issueOut struct {
+		ID          string  `json:"id"`
+		Number      *int32  `json:"number"`
+		Title       string  `json:"title"`
+		Description *string `json:"description"`
+		Status      string  `json:"status"`
+		Priority    string  `json:"priority"`
+		Assignee    string  `json:"assignee"`
+	}
+	out := make([]issueOut, 0, len(issues))
+	for _, iss := range issues {
+		assignee := "unassigned"
+		if iss.AssigneeType != nil {
+			assignee = *iss.AssigneeType
+			if *iss.AssigneeType == "agent" && iss.AgentAssigneeID.Valid {
+				assignee = "agent:" + formatUUID(iss.AgentAssigneeID)
+			}
+		}
+		out = append(out, issueOut{
+			ID:          formatUUID(iss.ID),
+			Number:      iss.Number,
+			Title:       iss.Title,
+			Description: iss.Description,
+			Status:      iss.Status,
+			Priority:    iss.Priority,
+			Assignee:    assignee,
+		})
+	}
+	writeJSON(w, out)
+}
+
+func toolCreateIssue(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	sess, ok := lookupToolSession(token)
+	if !ok {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Title        string  `json:"title"`
+		Description  *string `json:"description"`
+		Priority     string  `json:"priority"`
+		Status       string  `json:"status"`
+		AssigneeType string  `json:"assignee_type"`
+		AgentID      string  `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Title) == "" {
+		http.Error(w, "title is required", http.StatusBadRequest)
+		return
+	}
+	if req.Priority == "" {
+		req.Priority = "no_priority"
+	}
+	if req.Status == "" {
+		req.Status = "backlog"
+	}
+
+	num, err := sess.store.Q.NextIssueNumber(r.Context(), sess.workspaceID)
+	if err != nil {
+		num = 1
+	}
+
+	assigneeType := &req.AssigneeType
+	if req.AssigneeType == "" {
+		assigneeType = nil
+	}
+	agentID := parseUUID(req.AgentID)
+
+	iss, err := sess.store.Q.CreateIssue(r.Context(), db.CreateIssueParams{
+		WorkspaceID:     sess.workspaceID,
+		Number:          &num,
+		Title:           strings.TrimSpace(req.Title),
+		Description:     req.Description,
+		Status:          req.Status,
+		Priority:        req.Priority,
+		AssigneeType:    assigneeType,
+		AgentAssigneeID: agentID,
+		UserAssigneeID:  pgtype.UUID{Valid: false},
+		CreatedByID:     pgtype.UUID{Valid: false},
+	})
+	if err != nil {
+		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	broadcastEvent("issue:created", map[string]any{
+		"workspace_id": formatUUID(sess.workspaceID),
+		"issue": map[string]any{
+			"id":       formatUUID(iss.ID),
+			"number":   iss.Number,
+			"title":    iss.Title,
+			"status":   iss.Status,
+			"priority": iss.Priority,
+		},
+	})
+
+	writeJSON(w, map[string]any{
+		"id":     formatUUID(iss.ID),
+		"number": iss.Number,
+		"title":  iss.Title,
+		"status": iss.Status,
+	})
+}
+
+func toolAssignIssue(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	sess, ok := lookupToolSession(token)
+	if !ok {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	issueID := parseUUID(chi.URLParam(r, "issueId"))
+	if !issueID.Valid {
+		http.Error(w, "invalid issue id", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AgentID == "" {
+		http.Error(w, "agent_id is required", http.StatusBadRequest)
+		return
+	}
+
+	agentID := parseUUID(req.AgentID)
+	if !agentID.Valid {
+		http.Error(w, "invalid agent_id", http.StatusBadRequest)
+		return
+	}
+
+	assigneeType := "agent"
+	_, err := sess.store.Q.UpdateIssue(r.Context(), db.UpdateIssueParams{
+		ID:              issueID,
+		AssigneeType:    &assigneeType,
+		AgentAssigneeID: agentID,
+		UserAssigneeID:  pgtype.UUID{Valid: false},
+	})
+	if err != nil {
+		http.Error(w, "update failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	broadcastEvent("issue:updated", map[string]any{
+		"workspace_id": formatUUID(sess.workspaceID),
+		"issue_id":     formatUUID(issueID),
+	})
+
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func toolListAgents(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	sess, ok := lookupToolSession(token)
+	if !ok {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	agents, err := sess.store.Q.ListAgents(r.Context(), sess.workspaceID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	type agentOut struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Model  string `json:"model,omitempty"`
+	}
+	out := make([]agentOut, 0, len(agents))
+	for _, ag := range agents {
+		model := ""
+		if ag.Model != nil {
+			model = *ag.Model
+		}
+		out = append(out, agentOut{
+			ID:     formatUUID(ag.ID),
+			Name:   ag.Name,
+			Status: string(ag.Status),
+			Model:  model,
+		})
+	}
+	writeJSON(w, out)
 }

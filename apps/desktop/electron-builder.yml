@@ -1,0 +1,95 @@
+appId: com.openconductor.app
+productName: Open Conductor
+copyright: Copyright © 2024 Open Conductor Contributors
+
+# Output directory for packaged artifacts
+directories:
+  output: dist
+  buildResources: resources
+
+# Files to include in the app bundle (electron-vite build output)
+files:
+  - out/**/*
+  - package.json
+
+# Publish configuration (GitHub Releases)
+publish:
+  provider: github
+  releaseType: release
+
+# ── macOS ──────────────────────────────────────────────
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  icon: resources/icon.png
+  category: public.app-category.developer-tools
+  darkModeSupport: true
+  # Notarization — set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD,
+  # APPLE_TEAM_ID env vars in CI to enable.
+  # notarize: true
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+
+dmg:
+  title: Open Conductor ${version}
+  sign: false
+
+# ── Windows ────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: resources/icon.png
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+# ── Linux ──────────────────────────────────────────────
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  icon: resources/icon.png
+  category: Development
+  synopsis: Managed local AI agent swarms
+  description: >
+    Open Conductor is a desktop app for orchestrating multiple AI coding agents
+    locally. Connect to your self-hosted backend, create issues, and watch agents
+    work in parallel.
+
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+
+# ── Auto-update feed ───────────────────────────────────
+# electron-updater will read latest.yml / latest-mac.yml from the
+# GitHub release assets to check for updates.
