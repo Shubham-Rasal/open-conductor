@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { useCoreContext } from "@open-conductor/core/platform";
+import {
+  flowStepVariants,
+  modalBackdropVariants,
+  modalPanelVariants,
+  ocTransition,
+  ocTransitionFast,
+} from "../motion/presets";
 import { useCreateWorkspace } from "@open-conductor/core/workspaces";
 import type { Workspace } from "@open-conductor/core/types";
 import { getPickDirectory } from "../pickDirectory";
@@ -88,8 +96,6 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-
-  if (!open) return null;
 
   const inputGlass =
     "w-full rounded-[10px] border border-white/[0.08] bg-black/20 px-3 py-2.5 text-[13px] text-white/95 shadow-inner shadow-black/20 placeholder:text-white/35 backdrop-blur-sm transition focus:border-white/18 focus:outline-none focus:ring-1 focus:ring-white/12";
@@ -209,17 +215,30 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
   }
 
   const modal = (
-    <div
-      className="fixed inset-0 z-[500] flex items-center justify-center bg-black/35 p-5 backdrop-blur-2xl backdrop-saturate-150"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="create-ws-title"
-      onClick={onClose}
-    >
-      <div
-        className="pointer-events-auto flex max-h-[min(90vh,760px)] w-full min-w-0 max-w-[min(100%,480px)] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-gradient-to-b from-white/[0.14] to-white/[0.05] shadow-[0_32px_120px_-16px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.04)_inset] backdrop-blur-3xl backdrop-saturate-150 sm:max-w-[480px]"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          key="oc-create-ws"
+          variants={modalBackdropVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={ocTransition}
+          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/35 p-5 backdrop-blur-2xl backdrop-saturate-150"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-ws-title"
+          onClick={onClose}
+        >
+          <motion.div
+            variants={modalPanelVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={ocTransition}
+            className="pointer-events-auto flex max-h-[min(90vh,760px)] w-full min-w-0 max-w-[min(100%,480px)] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-gradient-to-b from-white/[0.14] to-white/[0.05] shadow-[0_32px_120px_-16px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.04)_inset] backdrop-blur-3xl backdrop-saturate-150 sm:max-w-[480px]"
+            onClick={(e) => e.stopPropagation()}
+          >
         {/* Raycast-style top chrome */}
         <div className="border-b border-white/[0.06] px-4 pb-3 pt-4">
           <div className="flex items-start gap-3">
@@ -252,7 +271,17 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 overflow-hidden px-4 py-4">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={flow}
+              variants={flowStepVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={ocTransitionFast}
+              className="max-h-[min(60vh,520px)] min-h-0 overflow-y-auto"
+            >
         {flow === "menu" && (
           <div>
             <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/38">Connect</p>
@@ -556,6 +585,8 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
             </div>
           </form>
         )}
+            </motion.div>
+          </AnimatePresence>
         </div>
 
         <div className="flex items-center justify-between border-t border-white/[0.08] bg-black/15 px-4 py-3 backdrop-blur-md">
@@ -568,8 +599,10 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
             <kbd className="rounded-md border border-white/[0.1] bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-white/55">Esc</kbd>
           </div>
         </div>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 
   if (typeof document === "undefined") return null;

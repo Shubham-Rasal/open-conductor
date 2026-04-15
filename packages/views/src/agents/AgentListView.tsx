@@ -1,108 +1,80 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentKeys, agentListOptions, detectAgentsOptions, useSpawnAgent, useStopManagedAgent } from "@open-conductor/core/agents";
+import {
+  agentKeys,
+  agentListOptions,
+  detectAgentsOptions,
+  useSpawnAgent,
+  useStopManagedAgent,
+} from "@open-conductor/core/agents";
 import type { DetectedTool } from "@open-conductor/core/agents";
 import { useCoreContext } from "@open-conductor/core/platform";
-import { workspaceListOptions } from "@open-conductor/core/workspaces";
 import type { Agent, AgentIntegrationTestResult } from "@open-conductor/core/types";
 import { ConnectAgentModal } from "./ConnectAgentModal";
 import { EditAgentPromptModal } from "./EditAgentPromptModal";
 import { ProviderIcon } from "./ProviderIcon";
 
-// ─── Status dot ────────────────────────────────────────────────────────────────
+// ── Status helpers ─────────────────────────────────────────────────────────────
 
-const STATUS_DOT: Record<string, string> = {
+const STATUS_COLOR: Record<string, string> = {
   idle:    "bg-success",
   working: "bg-brand animate-pulse",
   blocked: "bg-warning",
   error:   "bg-destructive",
-  offline: "bg-muted-foreground",
+  offline: "bg-muted-foreground/50",
 };
 
-// ─── Detected tool row ────────────────────────────────────────────────────────
+const STATUS_LABEL: Record<string, string> = {
+  idle:    "Idle",
+  working: "Working",
+  blocked: "Blocked",
+  error:   "Error",
+  offline: "Offline",
+};
 
-function DetectedToolRow({
-  tool,
-  connected,
-  onConnect,
-}: {
-  tool: DetectedTool;
-  connected: boolean;
-  onConnect: () => void;
-}) {
-  const unavailable = !tool.available && !connected;
+// ── Unified agent card ────────────────────────────────────────────────────────
 
-  return (
-    <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${unavailable ? "border-border/50 bg-muted/30 opacity-70" : "border-border bg-card"}`}>
-      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:h-6 [&_svg]:w-6">
-        <ProviderIcon provider={tool.provider} className="h-6 w-6" />
-      </span>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-foreground">{tool.label}</p>
-        <p className="text-xs text-muted-foreground">v{tool.version} · {tool.path}</p>
-        {tool.default_model && (
-          <p className="text-[11px] text-muted-foreground/70">model: {tool.default_model}</p>
-        )}
-        {tool.warning && (
-          <p className="text-[11px] text-amber-700 dark:text-amber-600">⚠ {tool.warning}</p>
-        )}
-        {unavailable && tool.reason && (
-          <p className="text-[11px] text-destructive/80">⚠ {tool.reason}</p>
-        )}
-      </div>
-      {connected ? (
-        <span className="flex items-center gap-1.5 rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success">
-          <span className="h-1.5 w-1.5 rounded-full bg-success" />
-          Connected
-        </span>
-      ) : unavailable ? (
-        <span className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground cursor-not-allowed">
-          Unavailable
-        </span>
-      ) : (
-        <button
-          onClick={onConnect}
-          className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
-        >
-          Connect
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─── Connected agent row ──────────────────────────────────────────────────────
-
-type IntegrationTestRowState =
+type IntegrationState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "done"; result: AgentIntegrationTestResult }
   | { status: "error"; message: string };
 
-function AgentRow({
+function AgentCard({
+  tool,
   agent,
+  onConnect,
   onEditPrompt,
-  integrationTest,
-  onTestIntegration,
   onDisconnect,
   onReconnect,
   onSpawn,
-  onStopSpawn,
+  onStop,
   actionBusy,
+  integrationTest,
+  onTestIntegration,
 }: {
-  agent: Agent;
-  onEditPrompt: () => void;
-  integrationTest: IntegrationTestRowState | undefined;
-  onTestIntegration: () => void;
-  onDisconnect: () => void;
-  onReconnect: () => void;
-  onSpawn: () => void;
-  onStopSpawn: () => void;
+  tool?: DetectedTool;
+  agent?: Agent;
+  onConnect?: () => void;
+  onEditPrompt?: () => void;
+  onDisconnect?: () => void;
+  onReconnect?: () => void;
+  onSpawn?: () => void;
+  onStop?: () => void;
   actionBusy: "disconnect" | "reconnect" | "spawn" | "stop" | null;
+  integrationTest?: IntegrationState;
+  onTestIntegration?: () => void;
 }) {
-  const dot = STATUS_DOT[agent.status] ?? "bg-muted-foreground";
-  const testing = integrationTest?.status === "loading";
-  const runtimeOnline = agent.runtime?.status === "online";
+  const provider = tool?.provider ?? agent?.name.toLowerCase().replace(/\s+/g, "") ?? "unknown";
+  const displayName = agent?.name ?? tool?.label ?? provider;
+  const runtimeOnline = agent?.runtime?.status === "online";
+  const isConnected = !!agent;
+  const unavailable = tool ? !tool.available && !isConnected : false;
+
+  const agentStatus = agent?.status ?? "offline";
+  const dotColor = isConnected ? (STATUS_COLOR[agentStatus] ?? "bg-muted-foreground/50") : "bg-muted-foreground/30";
+  const statusLabel = isConnected ? (STATUS_LABEL[agentStatus] ?? agentStatus) : "Not connected";
+
   const testHint =
     integrationTest?.status === "done"
       ? { ok: integrationTest.result.ok, text: integrationTest.result.message }
@@ -111,24 +83,123 @@ function AgentRow({
         : null;
 
   return (
-    <div className="border-b border-border px-6 py-4 last:border-0">
-      <div className="flex items-center gap-3">
-        <span className={`mt-0.5 h-2 w-2 flex-shrink-0 rounded-full ${dot}`} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground">{agent.name}</p>
-          {agent.instructions ? (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{agent.instructions}</p>
-          ) : (
-            <p className="mt-0.5 text-xs text-muted-foreground/70 italic">No system prompt set</p>
+    <div
+      className={`rounded-xl border bg-card px-5 py-4 transition-opacity ${
+        unavailable ? "border-border/40 opacity-50" : "border-border/70"
+      }`}
+    >
+      {/* Top row: icon + info + primary action */}
+      <div className="flex items-start gap-4">
+        {/* Icon */}
+        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-muted [&_svg]:h-6 [&_svg]:w-6">
+          <ProviderIcon provider={provider} className="h-6 w-6" />
+        </span>
+
+        {/* Name + meta */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-foreground">{displayName}</p>
+            {/* Status dot + label */}
+            <span className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
+              <span className="text-[11px] text-muted-foreground">{statusLabel}</span>
+            </span>
+          </div>
+
+          {/* Meta line */}
+          <p className="mt-0.5 text-[11px] text-muted-foreground/60">
+            {tool ? `v${tool.version} · ${tool.path}` : ""}
+            {tool?.default_model ? ` · ${tool.default_model}` : ""}
+          </p>
+
+          {/* Prompt preview */}
+          {agent?.instructions && (
+            <p className="mt-1 truncate text-xs text-muted-foreground/70">
+              {agent.instructions}
+            </p>
+          )}
+
+          {/* Warnings */}
+          {tool?.warning && (
+            <p className="mt-1 text-[11px] text-amber-500">⚠ {tool.warning}</p>
+          )}
+          {unavailable && tool?.reason && (
+            <p className="mt-1 text-[11px] text-destructive/70">⚠ {tool.reason}</p>
+          )}
+
+          {/* Integration test result */}
+          {testHint && (
+            <p className={`mt-1.5 text-[11px] ${testHint.ok ? "text-success" : "text-destructive"}`}>
+              {testHint.ok ? "✓" : "✗"} {testHint.text}
+            </p>
           )}
         </div>
-        <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+
+        {/* Primary action */}
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {!isConnected && !unavailable && (
+            <button
+              type="button"
+              onClick={onConnect}
+              className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+            >
+              Connect
+            </button>
+          )}
+
+          {isConnected && runtimeOnline && (
+            <button
+              type="button"
+              onClick={onStop}
+              disabled={actionBusy !== null}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent transition-colors disabled:opacity-40"
+            >
+              {actionBusy === "stop" ? "Stopping…" : "Stop"}
+            </button>
+          )}
+
+          {isConnected && !runtimeOnline && (
+            <button
+              type="button"
+              onClick={onSpawn}
+              disabled={actionBusy !== null}
+              className="rounded-lg border border-brand/40 bg-brand/10 px-3 py-1.5 text-xs font-medium text-brand hover:bg-brand/15 transition-colors disabled:opacity-40"
+            >
+              {actionBusy === "spawn" ? "Spawning…" : "Spawn"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom row: secondary actions (only when connected) */}
+      {isConnected && (
+        <div className="mt-3 flex items-center gap-2 border-t border-border/40 pt-3">
+          <button
+            type="button"
+            onClick={onEditPrompt}
+            disabled={actionBusy !== null}
+            className="rounded-md border border-border/60 px-2.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-40"
+          >
+            Edit prompt
+          </button>
+
+          <button
+            type="button"
+            onClick={onTestIntegration}
+            disabled={integrationTest?.status === "loading" || actionBusy !== null}
+            className="rounded-md border border-border/60 px-2.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-40"
+          >
+            {integrationTest?.status === "loading" ? "Testing…" : "Test"}
+          </button>
+
+          <div className="flex-1" />
+
           {runtimeOnline ? (
             <button
               type="button"
               onClick={onDisconnect}
               disabled={actionBusy !== null}
-              className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              className="rounded-md px-2.5 py-1 text-[11px] text-destructive/60 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
             >
               {actionBusy === "disconnect" ? "Disconnecting…" : "Disconnect"}
             </button>
@@ -137,84 +208,39 @@ function AgentRow({
               type="button"
               onClick={onReconnect}
               disabled={actionBusy !== null}
-              className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-accent disabled:opacity-50"
+              className="rounded-md px-2.5 py-1 text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
             >
               {actionBusy === "reconnect" ? "Reconnecting…" : "Reconnect"}
             </button>
           )}
-          <button
-            type="button"
-            onClick={onSpawn}
-            disabled={actionBusy !== null}
-            className="rounded-md border border-brand/40 bg-brand/10 px-2.5 py-1 text-[11px] font-medium text-brand hover:bg-brand/15 disabled:opacity-50"
-            title="Start managed runtime (same as reconnect)"
-          >
-            {actionBusy === "spawn" ? "…" : "Spawn"}
-          </button>
-          <button
-            type="button"
-            onClick={onStopSpawn}
-            disabled={actionBusy !== null}
-            className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
-          >
-            {actionBusy === "stop" ? "…" : "Stop"}
-          </button>
-          <button
-            type="button"
-            onClick={onTestIntegration}
-            disabled={testing || actionBusy !== null}
-            className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-accent disabled:opacity-50"
-          >
-            {testing ? "Testing…" : "Test integration"}
-          </button>
-          <button
-            type="button"
-            onClick={onEditPrompt}
-            disabled={actionBusy !== null}
-            className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-accent disabled:opacity-50"
-          >
-            Edit prompt
-          </button>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium capitalize text-muted-foreground">
-            {agent.status}
-          </span>
         </div>
-      </div>
-      {testHint && (
-        <p
-          className={`mt-2 pl-5 text-[11px] leading-snug ${testHint.ok ? "text-success" : "text-destructive"}`}
-        >
-          {testHint.text}
-        </p>
       )}
     </div>
   );
 }
 
-// ─── Main view ────────────────────────────────────────────────────────────────
+// ── Main view ─────────────────────────────────────────────────────────────────
+
+type AgentActionBusy = "disconnect" | "reconnect" | "spawn" | "stop" | undefined;
 
 export function AgentListView() {
   const { apiClient, workspaceId } = useCoreContext();
   const qc = useQueryClient();
+
   const [connectTool, setConnectTool] = useState<DetectedTool | null>(null);
   const [promptAgent, setPromptAgent] = useState<Agent | null>(null);
-  const [integrationTestByAgent, setIntegrationTestByAgent] = useState<
-    Record<string, IntegrationTestRowState>
-  >({});
-  const [agentActionBusy, setAgentActionBusy] = useState<
-    Record<string, "disconnect" | "reconnect" | "spawn" | "stop" | undefined>
-  >({});
+  const [integrationTestByAgent, setIntegrationTestByAgent] = useState<Record<string, IntegrationState>>({});
+  const [agentActionBusy, setAgentActionBusy] = useState<Record<string, AgentActionBusy>>({});
+
   const spawnAgent = useSpawnAgent();
   const stopManaged = useStopManagedAgent();
 
+  const { data: agents = [], isLoading: agentsLoading } = useQuery(agentListOptions(apiClient, workspaceId));
+  const { data: detected = [], isLoading: detectLoading } = useQuery(detectAgentsOptions(apiClient, workspaceId));
+
+  // ── Actions ──────────────────────────────────────────────────────────────────
+
   async function runIntegrationTest(agent: Agent) {
-    if (!workspaceId) {
-      setIntegrationTestByAgent((m) => ({
-        ...m,
-        [agent.id]: { status: "error", message: "Workspace is not ready yet." },
-      }));
-      return;
-    }
     setIntegrationTestByAgent((m) => ({ ...m, [agent.id]: { status: "loading" } }));
     try {
       const result = await apiClient.post<AgentIntegrationTestResult>(
@@ -229,7 +255,6 @@ export function AgentListView() {
   }
 
   async function disconnectAgent(agent: Agent) {
-    if (!workspaceId) return;
     setAgentActionBusy((m) => ({ ...m, [agent.id]: "disconnect" }));
     try {
       await apiClient.post(`/api/workspaces/${workspaceId}/agents/${agent.id}/disconnect`);
@@ -240,7 +265,6 @@ export function AgentListView() {
   }
 
   async function reconnectAgent(agent: Agent) {
-    if (!workspaceId) return;
     setAgentActionBusy((m) => ({ ...m, [agent.id]: "reconnect" }));
     try {
       await apiClient.post(`/api/workspaces/${workspaceId}/agents/${agent.id}/reconnect`, {});
@@ -251,7 +275,6 @@ export function AgentListView() {
   }
 
   async function spawnManaged(agent: Agent) {
-    if (!workspaceId) return;
     setAgentActionBusy((m) => ({ ...m, [agent.id]: "spawn" }));
     try {
       await spawnAgent.mutateAsync(agent.id);
@@ -261,7 +284,6 @@ export function AgentListView() {
   }
 
   async function stopSpawn(agent: Agent) {
-    if (!workspaceId) return;
     setAgentActionBusy((m) => ({ ...m, [agent.id]: "stop" }));
     try {
       await stopManaged.mutateAsync(agent.id);
@@ -270,129 +292,106 @@ export function AgentListView() {
     }
   }
 
-  const { data: agents = [], isLoading: agentsLoading } = useQuery(
-    agentListOptions(apiClient, workspaceId)
-  );
-  const { data: detected = [], isLoading: detectLoading } = useQuery(
-    detectAgentsOptions(apiClient, workspaceId)
-  );
-  const { data: workspaces = [] } = useQuery(workspaceListOptions(apiClient));
+  // ── Merge detected tools + connected agents into unified list ─────────────────
 
-  async function spawnAll() {
-    for (const a of agents) {
-      await spawnManaged(a);
+  // Map provider → connected agent (heuristic: name includes provider string)
+  const agentByProvider = new Map<string, Agent>();
+  for (const agent of agents as Agent[]) {
+    for (const tool of detected) {
+      if (agent.name.toLowerCase().includes(tool.provider)) {
+        agentByProvider.set(tool.provider, agent);
+      }
     }
   }
 
-  const currentWs = workspaces.find((w) => w.id === workspaceId);
-  const detectSectionTitle =
-    currentWs?.type === "remote" ? "Tools from remote workspace" : "Available on this machine";
-
-  // Which providers are already connected?
-  // We don't store provider on Agent yet, so we use name matching as a heuristic.
-  // The daemon register call sets the provider on agent_runtimes — for now, show
-  // "Connected" if any agent shares the same label prefix as the tool.
-  const connectedProviders = new Set(
-    detected
-      .filter((t) => agents.some((a: Agent) => a.name.toLowerCase().includes(t.provider)))
-      .map((t) => t.provider)
+  // Agents with no matching detected tool
+  const unmatchedAgents = (agents as Agent[]).filter(
+    (a) => !detected.some((t) => a.name.toLowerCase().includes(t.provider))
   );
 
+  const isLoading = agentsLoading || detectLoading;
+
   return (
-    <div className="flex h-full flex-col bg-canvas/55 backdrop-blur-[2px]">
+    <div className="flex h-full flex-col bg-canvas/85 backdrop-blur-[2px]">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/70 bg-background/40 px-6 py-4 backdrop-blur-sm">
+      <div className="flex items-center justify-between border-b border-border/70 bg-background/40 px-6 py-4">
         <h1 className="text-sm font-semibold text-foreground">Agents</h1>
-        {agents.length > 0 && (
+        {(agents as Agent[]).length > 0 && (
           <button
             type="button"
-            onClick={() => void spawnAll()}
-            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+            onClick={() => { for (const a of agents as Agent[]) void spawnManaged(a); }}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
           >
             Spawn all
           </button>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {/* ── Detected tools section ── */}
-        <div className="px-6 pt-5 pb-2">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {detectSectionTitle}
-          </p>
+      {/* Card list */}
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        {isLoading && (
+          <p className="text-sm text-muted-foreground">Loading agents…</p>
+        )}
 
-          {detectLoading && (
-            <p className="text-sm text-muted-foreground">Scanning for AI tools…</p>
-          )}
-
-          {!detectLoading && detected.length === 0 && (
-            <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center">
-              <p className="text-sm font-medium text-foreground">No AI tools detected</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Install Claude Code, OpenCode, or Codex and they will appear here automatically.
-              </p>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            {detected.map((tool) => (
-              <DetectedToolRow
-                key={tool.provider}
-                tool={tool}
-                connected={connectedProviders.has(tool.provider)}
-                onConnect={() => setConnectTool(tool)}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* ── Connected agents section ── */}
-        {(agentsLoading || agents.length > 0) && (
-          <div className="mt-6 px-6">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Connected agents
+        {!isLoading && detected.length === 0 && (agents as Agent[]).length === 0 && (
+          <div className="rounded-xl border border-dashed border-border px-6 py-10 text-center">
+            <p className="text-sm font-medium text-foreground">No agents found</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Install Claude Code, OpenCode, or Codex and they will appear here.
             </p>
           </div>
         )}
 
-        {agentsLoading && (
-          <p className="px-6 py-4 text-sm text-muted-foreground">Loading…</p>
-        )}
-
-        {!agentsLoading && agents.length > 0 && (
-          <div className="rounded-lg border border-border mx-6 mb-6 overflow-hidden">
-            {agents.map((agent: Agent) => (
-              <AgentRow
-                key={agent.id}
+        <div className="space-y-3">
+          {/* One card per detected tool */}
+          {detected.map((tool) => {
+            const agent = agentByProvider.get(tool.provider);
+            return (
+              <AgentCard
+                key={tool.provider}
+                tool={tool}
                 agent={agent}
-                integrationTest={integrationTestByAgent[agent.id]}
-                onTestIntegration={() => void runIntegrationTest(agent)}
-                onEditPrompt={() => setPromptAgent(agent)}
-                onDisconnect={() => void disconnectAgent(agent)}
-                onReconnect={() => void reconnectAgent(agent)}
-                onSpawn={() => void spawnManaged(agent)}
-                onStopSpawn={() => void stopSpawn(agent)}
-                actionBusy={agentActionBusy[agent.id] ?? null}
+                onConnect={() => setConnectTool(tool)}
+                onEditPrompt={agent ? () => setPromptAgent(agent) : undefined}
+                onDisconnect={agent ? () => void disconnectAgent(agent) : undefined}
+                onReconnect={agent ? () => void reconnectAgent(agent) : undefined}
+                onSpawn={agent ? () => void spawnManaged(agent) : undefined}
+                onStop={agent ? () => void stopSpawn(agent) : undefined}
+                actionBusy={agent ? (agentActionBusy[agent.id] ?? null) : null}
+                integrationTest={agent ? integrationTestByAgent[agent.id] : undefined}
+                onTestIntegration={agent ? () => void runIntegrationTest(agent) : undefined}
               />
-            ))}
-          </div>
-        )}
+            );
+          })}
+
+          {/* Agents with no matching detected tool */}
+          {unmatchedAgents.map((agent) => (
+            <AgentCard
+              key={agent.id}
+              agent={agent}
+              onEditPrompt={() => setPromptAgent(agent)}
+              onDisconnect={() => void disconnectAgent(agent)}
+              onReconnect={() => void reconnectAgent(agent)}
+              onSpawn={() => void spawnManaged(agent)}
+              onStop={() => void stopSpawn(agent)}
+              actionBusy={agentActionBusy[agent.id] ?? null}
+              integrationTest={integrationTestByAgent[agent.id]}
+              onTestIntegration={() => void runIntegrationTest(agent)}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Connect modal */}
-      {connectTool && (
-        <ConnectAgentModal
-          tool={connectTool}
-          onClose={() => setConnectTool(null)}
-        />
-      )}
-
-      {promptAgent && (
-        <EditAgentPromptModal
-          agent={promptAgent}
-          onClose={() => setPromptAgent(null)}
-        />
-      )}
+      <ConnectAgentModal
+        open={connectTool !== null}
+        tool={connectTool}
+        onClose={() => setConnectTool(null)}
+      />
+      <EditAgentPromptModal
+        open={promptAgent !== null}
+        agent={promptAgent}
+        onClose={() => setPromptAgent(null)}
+      />
     </div>
   );
 }

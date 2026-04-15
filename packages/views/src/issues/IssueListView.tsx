@@ -350,7 +350,7 @@ export function IssueListView() {
   const issuesPath = `/w/${workspaceId}/issues`;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-canvas/55 backdrop-blur-[2px]">
+    <div className="flex h-full min-h-0 flex-col bg-canvas/85 backdrop-blur-[2px]">
       <header className="flex-shrink-0 border-b border-border/70 bg-background/40 px-6 pb-0 pt-4 backdrop-blur-sm">
         <nav className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
           <span className="font-medium text-foreground/90">{workspaceName}</span>
@@ -460,9 +460,11 @@ export function IssueListView() {
         </div>
       )}
 
-      {showCreate && (
-        <CreateIssueModal onClose={() => setShowCreate(false)} onCreated={() => setShowCreate(false)} />
-      )}
+      <CreateIssueModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => setShowCreate(false)}
+      />
     </div>
   );
 }

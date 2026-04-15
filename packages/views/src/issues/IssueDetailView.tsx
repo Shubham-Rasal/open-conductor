@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { UpdateIssueInput } from "@open-conductor/core/issues";
 import { issueDetailOptions, issueCommentsOptions, issueTasksOptions, useUpdateIssue, useCreateComment } from "@open-conductor/core/issues";
 import { agentListOptions } from "@open-conductor/core/agents";
 import { workspaceMembersOptions } from "@open-conductor/core/workspaces";
 import { useCoreContext } from "@open-conductor/core/platform";
-import type { AgentTask, TaskMessage } from "@open-conductor/core/types";
+import type { Agent, AgentTask, TaskMessage } from "@open-conductor/core/types";
 import { useNavigation } from "../navigation";
 import { AssigneeSelector, type AssigneeKind } from "./AssigneeSelector";
 import { agentIdForIssue, userIdForIssue } from "./issueAssignee";
@@ -14,6 +16,39 @@ type IssuePatch = Omit<UpdateIssueInput, "workspaceId" | "id">;
 
 const STATUSES = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "blocked"];
 const PRIORITIES = ["no_priority", "urgent", "high", "medium", "low"];
+
+// ─── Markdown renderer ────────────────────────────────────────────────────────
+
+function Md({ children, className }: { children: string; className?: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children: c }) => <h1 className="mb-1 mt-2 text-base font-semibold text-foreground">{c}</h1>,
+        h2: ({ children: c }) => <h2 className="mb-1 mt-2 text-sm font-semibold text-foreground">{c}</h2>,
+        h3: ({ children: c }) => <h3 className="mb-0.5 mt-1.5 text-xs font-semibold text-foreground">{c}</h3>,
+        p: ({ children: c }) => <p className="mb-1 last:mb-0">{c}</p>,
+        a: ({ href, children: c }) => <a href={href} target="_blank" rel="noreferrer" className="text-brand underline underline-offset-2 hover:opacity-80">{c}</a>,
+        strong: ({ children: c }) => <strong className="font-semibold text-foreground">{c}</strong>,
+        em: ({ children: c }) => <em className="italic text-foreground/80">{c}</em>,
+        ul: ({ children: c }) => <ul className="mb-1 ml-4 list-disc space-y-0.5">{c}</ul>,
+        ol: ({ children: c }) => <ol className="mb-1 ml-4 list-decimal space-y-0.5">{c}</ol>,
+        li: ({ children: c }) => <li className="text-foreground">{c}</li>,
+        code: ({ className: cls, children: c, ...props }) => {
+          const isBlock = /language-/.test(cls ?? "");
+          return isBlock
+            ? <code className="block overflow-x-auto rounded bg-muted/70 p-2 font-mono text-[11px] text-foreground" {...props}>{c}</code>
+            : <code className="rounded bg-muted/70 px-1 py-0.5 font-mono text-[11px] text-foreground">{c}</code>;
+        },
+        pre: ({ children: c }) => <pre className="mb-1 overflow-x-auto">{c}</pre>,
+        blockquote: ({ children: c }) => <blockquote className="mb-1 border-l-2 border-muted-foreground/40 pl-3 italic text-muted-foreground">{c}</blockquote>,
+        hr: () => <hr className="my-2 border-border" />,
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  );
+}
 
 // ─── Stage badge ──────────────────────────────────────────────────────────────
 
@@ -67,7 +102,10 @@ function LiveOutput({ issueId }: { issueId: string }) {
             "text-foreground"
           }>
             {m.kind === "tool" && <span className="mr-1 opacity-60">⚙</span>}
-            {m.content}
+            {m.kind === "text"
+              ? <Md className="text-xs">{m.content}</Md>
+              : m.content
+            }
           </div>
         ))}
         <div ref={bottomRef} />
@@ -78,10 +116,21 @@ function LiveOutput({ issueId }: { issueId: string }) {
 
 // ─── Task history row ─────────────────────────────────────────────────────────
 
-function TaskRow({ task }: { task: AgentTask }) {
+function TaskRow({ task, assignedAgent }: { task: AgentTask; assignedAgent?: Agent }) {
   const [expanded, setExpanded] = useState(false);
   const isActive = task.status === "running" || task.status === "dispatched";
   const hasOutput = !!task.output;
+
+  const agentOffline =
+    task.status === "queued" &&
+    assignedAgent &&
+    (!assignedAgent.runtime || assignedAgent.runtime.status === "offline");
+
+  const queuedReason = agentOffline
+    ? `Agent "${assignedAgent!.name}" is offline — task will run once it connects`
+    : task.status === "queued"
+    ? "Waiting to be picked up by the agent runner…"
+    : null;
 
   return (
     <div className={`rounded-lg border ${isActive ? "border-brand/40 bg-brand/5" : "border-border bg-card"} p-3`}>
@@ -107,6 +156,13 @@ function TaskRow({ task }: { task: AgentTask }) {
         )}
       </div>
 
+      {queuedReason && (
+        <div className={`mt-2 flex items-center gap-1.5 rounded px-2 py-1.5 text-[11px] ${agentOffline ? "bg-warning/10 text-warning-foreground" : "bg-muted/60 text-muted-foreground"}`}>
+          <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${agentOffline ? "bg-warning" : "animate-pulse bg-muted-foreground/50"}`} />
+          {queuedReason}
+        </div>
+      )}
+
       {task.error_message && (
         <p className="mt-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
           {task.error_message}
@@ -114,9 +170,9 @@ function TaskRow({ task }: { task: AgentTask }) {
       )}
 
       {expanded && task.output && (
-        <pre className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-[11px] text-foreground">
-          {task.output}
-        </pre>
+        <div className="mt-2 max-h-64 overflow-y-auto rounded bg-muted/50 p-3 text-[12px] text-foreground">
+          <Md>{task.output}</Md>
+        </div>
       )}
     </div>
   );
@@ -172,6 +228,9 @@ export function IssueDetailView({ issueId }: Props) {
 
   const aid = agentIdForIssue(issue);
   const uid = userIdForIssue(issue);
+  const assignedAgent = aid ? (agents as Agent[]).find((a) => a.id === aid) : undefined;
+  const agentIsOffline = assignedAgent && (!assignedAgent.runtime || assignedAgent.runtime.status === "offline");
+  const hasQueuedTasks = tasks.some((t) => t.status === "queued");
   const assigneeKind: AssigneeKind =
     issue.assignee_type === "agent" && aid ? "agent" : issue.assignee_type === "member" && uid ? "member" : "none";
 
@@ -195,6 +254,25 @@ export function IssueDetailView({ issueId }: Props) {
         <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
           <h1 className="text-xl font-semibold text-foreground">{issue.title}</h1>
 
+          {/* Agent offline banner */}
+          {agentIsOffline && hasQueuedTasks && (
+            <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/8 px-4 py-3">
+              <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" viewBox="0 0 16 16" fill="none">
+                <path d="M8 1.5L1 14.5h14L8 1.5z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+                <path d="M8 6v4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+                <circle cx="8" cy="12" r="0.75" fill="currentColor" />
+              </svg>
+              <div>
+                <p className="text-xs font-medium text-warning-foreground">
+                  Agent &ldquo;{assignedAgent!.name}&rdquo; is offline
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Queued tasks will start automatically when the agent connects. Go to the Agents tab to check its status.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Task activity */}
           {tasks.length > 0 && (
             <section>
@@ -202,7 +280,7 @@ export function IssueDetailView({ issueId }: Props) {
               <div className="space-y-2">
                 {activeTask && <LiveOutput issueId={issueId} />}
                 {tasks.map((task) => (
-                  <TaskRow key={task.id} task={task} />
+                  <TaskRow key={task.id} task={task} assignedAgent={assignedAgent} />
                 ))}
               </div>
             </section>

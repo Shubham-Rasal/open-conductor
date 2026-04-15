@@ -17,5 +17,9 @@ export function WorkspaceLayout() {
     if (w) switchWorkspace(w);
   }, [paramId, workspaces, switchWorkspace]);
 
-  return <Outlet />;
+  return (
+    <div className="h-full min-h-0 w-full">
+      <Outlet />
+    </div>
+  );
 }

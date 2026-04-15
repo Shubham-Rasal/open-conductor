@@ -10,7 +10,8 @@
     "./agents": "./src/agents/index.tsx",
     "./navigation": "./src/navigation/index.ts",
     "./workspace": "./src/workspace/index.tsx",
-    "./theme": "./src/theme/index.ts"
+    "./theme": "./src/theme/index.ts",
+    "./motion": "./src/motion/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
@@ -20,6 +21,7 @@
     "@open-conductor/core": "workspace:*",
     "@open-conductor/ui": "workspace:*",
     "@tanstack/react-query": "^5.0.0",
+    "framer-motion": "^11.18.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
