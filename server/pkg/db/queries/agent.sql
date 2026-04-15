@@ -21,10 +21,12 @@ WHERE id = (
     SELECT atq.id
     FROM agent_task_queue atq
     WHERE atq.agent_id = $1
+      AND atq.workspace_id = $2
       AND atq.status = 'queued'
       AND NOT EXISTS (
           SELECT 1 FROM agent_task_queue active
           WHERE active.agent_id = atq.agent_id
+            AND active.workspace_id = $2
             AND active.status IN ('dispatched', 'running')
             AND (
               (atq.issue_id IS NOT NULL AND active.issue_id = atq.issue_id)
@@ -34,6 +36,7 @@ WHERE id = (
       AND (
           SELECT COUNT(*) FROM agent_task_queue running
           WHERE running.agent_id = atq.agent_id
+            AND running.workspace_id = $2
             AND running.status IN ('dispatched', 'running')
       ) < (SELECT max_concurrent_tasks FROM agents WHERE id = $1)
     ORDER BY atq.priority DESC, atq.created_at ASC
@@ -68,8 +71,8 @@ WHERE id = $1 AND status IN ('queued', 'dispatched', 'running')
 RETURNING *;
 
 -- name: EnqueueTask :one
-INSERT INTO agent_task_queue (agent_id, issue_id, priority, trigger_comment_id)
-VALUES ($1, $2, $3, $4)
+INSERT INTO agent_task_queue (agent_id, issue_id, priority, trigger_comment_id, workspace_id)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- name: CancelTasksByIssue :exec
@@ -80,11 +83,11 @@ WHERE issue_id = $1 AND status IN ('queued', 'dispatched', 'running');
 -- name: CancelQueuedTasksForAgent :exec
 UPDATE agent_task_queue
 SET status = 'cancelled', completed_at = NOW()
-WHERE agent_id = $1 AND status IN ('queued', 'dispatched', 'running');
+WHERE agent_id = $1 AND workspace_id = $2 AND status IN ('queued', 'dispatched', 'running');
 
 -- name: GetLastCompletedSession :one
 SELECT session_id FROM agent_task_queue
-WHERE agent_id = $1
+WHERE agent_id = $1 AND workspace_id = $2
   AND session_id IS NOT NULL
   AND status = 'completed'
 ORDER BY completed_at DESC
@@ -102,9 +105,19 @@ WHERE id = $1 AND workspace_id = $2
 RETURNING *;
 
 -- name: ListOnlineAgentRuntimes :many
-SELECT ar.*, a.workspace_id
+SELECT
+  ar.id,
+  ar.agent_id,
+  ar.workspace_id,
+  ar.provider,
+  ar.status,
+  ar.device_name,
+  ar.last_seen_at,
+  ar.created_at,
+  w.type AS workspace_type,
+  w.connection_url
 FROM agent_runtimes ar
-JOIN agents a ON a.id = ar.agent_id
+JOIN workspaces w ON w.id = ar.workspace_id
 WHERE ar.status = 'online';
 
 -- name: GetIssueForTask :one

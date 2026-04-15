@@ -19,3 +19,11 @@ export function workspaceListOptions(api: ApiClient) {
     select: (data) => data.workspaces,
   });
 }
+
+export function workspaceDetailOptions(api: ApiClient, id: string) {
+  return queryOptions({
+    queryKey: workspaceKeys.detail(id),
+    queryFn: () => api.get<Workspace>(`/api/workspaces/${id}`),
+    enabled: !!id,
+  });
+}

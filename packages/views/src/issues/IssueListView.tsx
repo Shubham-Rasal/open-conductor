@@ -7,6 +7,7 @@ import { useCoreContext } from "@open-conductor/core/platform";
 import type { Issue, Agent } from "@open-conductor/core/types";
 import { useNavigation } from "../navigation";
 import { CreateIssueModal } from "./CreateIssueModal";
+import { ProviderIcon, resolveProviderForAgent } from "../agents/ProviderIcon";
 
 // ─── Column config ────────────────────────────────────────────────────────────
 
@@ -18,28 +19,57 @@ type StatusKey =
   | "in_review"
   | "done";
 
-const COLUMNS: { key: StatusKey; label: string; dot: string; header: string }[] = [
-  { key: "backlog",     label: "Backlog",     dot: "bg-muted-foreground",  header: "bg-muted/60" },
-  { key: "todo",        label: "Todo",        dot: "bg-foreground",        header: "bg-muted/60" },
-  { key: "in_progress", label: "In Progress", dot: "bg-brand",             header: "bg-brand/10" },
-  { key: "blocked",     label: "Blocked",     dot: "bg-destructive",       header: "bg-destructive/10" },
-  { key: "in_review",   label: "In Review",   dot: "bg-warning",           header: "bg-warning/10" },
-  { key: "done",        label: "Done",        dot: "bg-success",           header: "bg-success/10" },
+const COLUMNS: { key: StatusKey; label: string; dot: string; header: string; ring: string }[] = [
+  { key: "backlog",     label: "Backlog",     dot: "bg-muted-foreground",  header: "border-border/80 bg-muted/40",   ring: "ring-muted-foreground/25" },
+  { key: "todo",        label: "Todo",        dot: "bg-foreground/80",     header: "border-border bg-background/50", ring: "ring-foreground/10" },
+  { key: "in_progress", label: "In Progress", dot: "bg-amber-500",         header: "border-amber-500/25 bg-amber-500/10", ring: "ring-amber-500/20" },
+  { key: "blocked",     label: "Blocked",     dot: "bg-destructive",       header: "border-destructive/30 bg-destructive/10", ring: "ring-destructive/20" },
+  { key: "in_review",   label: "In Review",   dot: "bg-emerald-500",       header: "border-emerald-500/25 bg-emerald-500/10", ring: "ring-emerald-500/20" },
+  { key: "done",        label: "Done",        dot: "bg-sky-500",           header: "border-sky-500/25 bg-sky-500/10", ring: "ring-sky-500/20" },
 ];
 
-// ─── Priority badge ───────────────────────────────────────────────────────────
+// ─── Priority ─────────────────────────────────────────────────────────────────
 
-const PRIORITY_BADGE: Record<string, { label: string; cls: string }> = {
-  urgent:      { label: "Urgent",  cls: "bg-destructive/15 text-destructive" },
-  high:        { label: "High",    cls: "bg-orange-500/15 text-orange-600 dark:text-orange-400" },
-  medium:      { label: "Medium",  cls: "bg-warning/15 text-warning-foreground" },
-  low:         { label: "Low",     cls: "bg-info/15 text-info-foreground" },
-  no_priority: { label: "",        cls: "" },
+type PriorityBadgeDef = { label: string; cls: string; bars: 0 | 1 | 2 | 3 | 4 };
+
+const NO_PRIORITY_BADGE: PriorityBadgeDef = { label: "", cls: "", bars: 0 };
+
+const PRIORITY_BADGE: Record<string, PriorityBadgeDef> = {
+  urgent:      { label: "Urgent",  cls: "bg-red-500/15 text-red-400 border-red-500/25", bars: 4 },
+  high:        { label: "High",    cls: "bg-orange-500/15 text-orange-400 border-orange-500/25", bars: 3 },
+  medium:      { label: "Medium",  cls: "bg-amber-500/12 text-amber-400 border-amber-500/20", bars: 2 },
+  low:         { label: "Low",     cls: "bg-sky-500/12 text-sky-400 border-sky-500/20", bars: 1 },
+  no_priority: NO_PRIORITY_BADGE,
 };
+
+function priorityBadge(priority: string): PriorityBadgeDef {
+  return PRIORITY_BADGE[priority] ?? NO_PRIORITY_BADGE;
+}
+
+function PriorityBars({ count }: { count: 0 | 1 | 2 | 3 | 4 }) {
+  const heights = [4, 7, 10, 13];
+  return (
+    <span className="flex h-[13px] items-end gap-[3px]" aria-hidden>
+      {heights.map((h, i) => (
+        <span
+          key={i}
+          className={`w-[3px] rounded-sm ${i < count ? "bg-current opacity-100" : "bg-current opacity-20"}`}
+          style={{ height: h }}
+        />
+      ))}
+    </span>
+  );
+}
 
 // ─── Assignee avatar ──────────────────────────────────────────────────────────
 
-function AgentAvatar({ agent }: { agent: Agent | undefined }) {
+function AgentAvatar({
+  agent,
+  size = "md",
+}: {
+  agent: Agent | undefined;
+  size?: "sm" | "md";
+}) {
   if (!agent) return null;
   const initials = agent.name
     .split(" ")
@@ -48,16 +78,17 @@ function AgentAvatar({ agent }: { agent: Agent | undefined }) {
     .slice(0, 2)
     .toUpperCase();
   const statusRing: Record<string, string> = {
-    idle: "ring-success",
-    working: "ring-brand",
-    blocked: "ring-warning",
-    error: "ring-destructive",
-    offline: "ring-muted-foreground",
+    idle: "ring-emerald-500/80",
+    working: "ring-brand/90",
+    blocked: "ring-amber-500/80",
+    error: "ring-destructive/80",
+    offline: "ring-muted-foreground/50",
   };
+  const dim = size === "sm" ? "h-5 w-5 text-[8px] ring-1" : "h-7 w-7 text-[10px] ring-2";
   return (
     <span
       title={agent.name}
-      className={`inline-flex h-5 w-5 items-center justify-center rounded-full bg-sidebar-accent text-[9px] font-semibold text-sidebar-accent-foreground ring-2 ${statusRing[agent.status] ?? "ring-muted"}`}
+      className={`inline-flex ${dim} items-center justify-center rounded-full border border-border/60 bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm ${statusRing[agent.status] ?? "ring-muted-foreground/40"}`}
     >
       {initials}
     </span>
@@ -77,36 +108,50 @@ function IssueCard({
   prefix: string;
   onClick: () => void;
 }) {
-  const badge = PRIORITY_BADGE[issue.priority];
+  const badge = priorityBadge(issue.priority);
   const identifier = issue.number != null ? `${prefix}-${issue.number}` : issue.id.slice(0, 6);
+  const assigneeProvider = resolveProviderForAgent(agent);
 
   return (
     <div
       onClick={onClick}
-      className="group cursor-pointer rounded-lg border border-border bg-card px-3.5 py-3 shadow-sm transition-shadow hover:shadow-md"
+      className="group cursor-pointer rounded-xl border border-border/70 bg-card/95 px-3.5 py-3 shadow-sm transition-all hover:border-border hover:bg-card hover:shadow-md"
     >
-      {/* identifier */}
-      <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">{identifier}</p>
+      <p className="mb-1.5 text-[11px] font-medium tracking-wide text-muted-foreground">{identifier}</p>
 
-      {/* title */}
-      <p className="mb-1 text-[13px] font-medium leading-snug text-foreground line-clamp-2">
+      <p className="mb-1.5 text-[14px] font-semibold leading-snug text-foreground line-clamp-2">
         {issue.title}
       </p>
 
-      {/* description */}
       {issue.description && (
-        <p className="mb-2.5 text-[12px] leading-relaxed text-muted-foreground line-clamp-2">
+        <p className="mb-3 text-[12px] leading-relaxed text-muted-foreground line-clamp-2">
           {issue.description}
         </p>
       )}
 
-      {/* footer */}
-      <div className="flex items-center justify-between gap-2 pt-1">
-        <AgentAvatar agent={agent} />
-        {badge && badge.label && (
-          <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${badge.cls}`}>
-            {badge.label}
-          </span>
+      <div className="flex items-center justify-between gap-2 border-t border-border/40 pt-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          {badge.label ? (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${badge.cls}`}
+            >
+              <PriorityBars count={badge.bars} />
+              {badge.label}
+            </span>
+          ) : (
+            <span className="text-[11px] text-muted-foreground/60">—</span>
+          )}
+        </div>
+        {(assigneeProvider || agent) && (
+          <div className="flex shrink-0 items-center">
+            {assigneeProvider ? (
+              <span className="flex items-center" title={agent?.name ?? assigneeProvider}>
+                <ProviderIcon provider={assigneeProvider} className="h-5 w-5" />
+              </span>
+            ) : (
+              <AgentAvatar agent={agent} />
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -131,38 +176,44 @@ function BoardColumn({
   onAdd: () => void;
 }) {
   const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]));
+  const title = `${col.label} (${issues.length})`;
 
   return (
-    <div className="flex w-64 flex-shrink-0 flex-col">
-      {/* Column header */}
-      <div className={`mb-2 flex items-center justify-between rounded-lg px-3 py-2 ${col.header}`}>
-        <div className="flex items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${col.dot}`} />
-          <span className="text-[13px] font-semibold text-foreground">{col.label}</span>
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-            {issues.length}
-          </span>
+    <div className="flex min-h-0 w-[272px] flex-shrink-0 flex-col">
+      <div
+        className={`mb-3 flex items-center justify-between rounded-xl border px-3 py-2.5 shadow-sm ring-1 ${col.header} ${col.ring}`}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`h-2 w-2 flex-shrink-0 rounded-full ${col.dot} shadow-sm`} />
+          <span className="truncate text-[13px] font-semibold text-foreground">{title}</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-shrink-0 items-center gap-0.5">
           <button
-            onClick={onAdd}
-            className="rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/60"
-            title="Add issue"
+            type="button"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
+            title="Column actions"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <circle cx="12" cy="5" r="1.8" />
+              <circle cx="12" cy="12" r="1.8" />
+              <circle cx="12" cy="19" r="1.8" />
             </svg>
           </button>
-          <button className="rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/60" title="Collapse">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <button
+            type="button"
+            onClick={onAdd}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
+            title="Add issue"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25">
+              <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
           </button>
         </div>
       </div>
 
-      {/* Cards */}
-      <div className="flex flex-col gap-2 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-0.5">
         {issues.map((issue) => (
           <IssueCard
             key={issue.id}
@@ -173,7 +224,7 @@ function BoardColumn({
           />
         ))}
         {issues.length === 0 && (
-          <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center">
+          <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-3 py-8 text-center">
             <p className="text-xs text-muted-foreground">No issues</p>
           </div>
         )}
@@ -194,21 +245,46 @@ const STATUS_BADGE: Record<string, string> = {
   blocked:     "bg-destructive/15 text-destructive",
 };
 
-function ListRow({ issue, prefix, onClick }: { issue: Issue; prefix: string; onClick: () => void }) {
+function ListRow({
+  issue,
+  agent,
+  prefix,
+  onClick,
+}: {
+  issue: Issue;
+  agent: Agent | undefined;
+  prefix: string;
+  onClick: () => void;
+}) {
   const identifier = issue.number != null ? `${prefix}-${issue.number}` : issue.id.slice(0, 6);
-  const badge = PRIORITY_BADGE[issue.priority];
+  const badge = priorityBadge(issue.priority);
+  const assigneeProvider = resolveProviderForAgent(agent);
 
   return (
     <div
       onClick={onClick}
-      className="flex cursor-pointer items-center gap-3 border-b border-border px-6 py-3 hover:bg-accent/30 transition-colors"
+      className="flex cursor-pointer items-center gap-3 border-b border-border/60 px-6 py-3 transition-colors hover:bg-muted/30"
     >
       <span className="w-16 flex-shrink-0 text-xs font-medium text-muted-foreground">{identifier}</span>
       <span className="flex-1 truncate text-sm text-foreground">{issue.title}</span>
       {badge && badge.label && (
-        <span className={`rounded px-2 py-0.5 text-[11px] font-medium ${badge.cls}`}>{badge.label}</span>
+        <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${badge.cls}`}>
+          <PriorityBars count={badge.bars} />
+          {badge.label}
+        </span>
       )}
-      <span className={`rounded px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[issue.status] ?? ""}`}>
+      {(assigneeProvider || agent) && (
+        <div className="flex flex-shrink-0 items-center">
+          {assigneeProvider ? (
+            <span title={agent?.name ?? assigneeProvider}>
+              <ProviderIcon provider={assigneeProvider} className="h-4 w-4" />
+            </span>
+          ) : (
+            <AgentAvatar agent={agent} size="sm" />
+          )}
+        </div>
+      )}
+      <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[issue.status] ?? ""}`}>
         {issue.status.replace(/_/g, " ")}
       </span>
     </div>
@@ -227,65 +303,93 @@ export function IssueListView() {
   const { data: agents = [] } = useQuery(agentListOptions(apiClient, workspaceId));
   const { data: workspaces = [] } = useQuery(workspaceListOptions(apiClient));
 
-  const prefix = workspaces.find((w) => w.id === workspaceId)?.prefix ?? "OC";
+  const workspace = workspaces.find((w) => w.id === workspaceId);
+  const prefix = workspace?.prefix ?? "OC";
+  const workspaceName = workspace?.name ?? "Workspace";
 
   const grouped = Object.fromEntries(
     COLUMNS.map((c) => [c.key, issues.filter((i) => i.status === c.key)])
   ) as Record<StatusKey, Issue[]>;
 
-  return (
-    <div className="flex h-full flex-col bg-background">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-6 py-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-sm font-semibold text-foreground">Issues</h1>
-          <span className="text-xs text-muted-foreground">{issues.length} issues</span>
-        </div>
+  const countLabel = `${issues.length} Issue${issues.length === 1 ? "" : "s"}`;
+  const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]));
 
-        <div className="flex items-center gap-2">
-          {/* View toggle */}
-          <div className="flex items-center rounded-md border border-border bg-muted/40 p-0.5">
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-canvas">
+      <header className="flex-shrink-0 border-b border-border/70 bg-background/40 px-6 pb-0 pt-4 backdrop-blur-sm">
+        <nav className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+          <span className="font-medium text-foreground/90">{workspaceName}</span>
+          <span className="text-muted-foreground/70" aria-hidden>
+            /
+          </span>
+          <span className="text-muted-foreground">Issues</span>
+        </nav>
+
+        <div className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-border/80 bg-muted/30 p-0.5">
+              <button
+                type="button"
+                onClick={() => setView("board")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  view === "board"
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Board
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("list")}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  view === "list"
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                List
+              </button>
+            </div>
             <button
-              onClick={() => setView("board")}
-              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                view === "board"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              type="button"
+              disabled
+              title="Coming soon"
+              className="rounded-lg border border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground/50"
             >
-              Board
+              Filter
             </button>
             <button
-              onClick={() => setView("list")}
-              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                view === "list"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              type="button"
+              disabled
+              title="Coming soon"
+              className="rounded-lg border border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground/50"
             >
-              List
+              Display
             </button>
           </div>
 
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            New Issue
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm tabular-nums text-muted-foreground">{countLabel}</span>
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-92"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              New Issue
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {isLoading && (
-        <p className="px-6 py-8 text-sm text-muted-foreground">Loading…</p>
-      )}
+      {isLoading && <p className="px-6 py-10 text-sm text-muted-foreground">Loading…</p>}
 
-      {/* Board view */}
       {!isLoading && view === "board" && (
-        <div className="flex flex-1 gap-3 overflow-x-auto p-4">
+        <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-5 py-5">
           {COLUMNS.map((col) => (
             <BoardColumn
               key={col.key}
@@ -300,11 +404,10 @@ export function IssueListView() {
         </div>
       )}
 
-      {/* List view */}
       {!isLoading && view === "list" && (
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-background/30">
           {issues.length === 0 && (
-            <p className="px-6 py-8 text-sm text-muted-foreground">
+            <p className="px-6 py-10 text-sm text-muted-foreground">
               No issues yet. Create your first issue to get started.
             </p>
           )}
@@ -312,6 +415,7 @@ export function IssueListView() {
             <ListRow
               key={issue.id}
               issue={issue}
+              agent={issue.assignee_id ? agentMap[issue.assignee_id] : undefined}
               prefix={prefix}
               onClick={() => nav.push(`/issues/${issue.id}`)}
             />
@@ -320,10 +424,7 @@ export function IssueListView() {
       )}
 
       {showCreate && (
-        <CreateIssueModal
-          onClose={() => setShowCreate(false)}
-          onCreated={() => setShowCreate(false)}
-        />
+        <CreateIssueModal onClose={() => setShowCreate(false)} onCreated={() => setShowCreate(false)} />
       )}
     </div>
   );

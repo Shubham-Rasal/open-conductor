@@ -35,12 +35,15 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 
+	// `opencode run` does not support --prompt (only the TUI does). Fold system instructions into the message.
+	userMessage := prompt
+	if opts.SystemPrompt != "" {
+		userMessage = opts.SystemPrompt + "\n\n---\n\n" + prompt
+	}
+
 	args := []string{"run", "--format", "json"}
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)
-	}
-	if opts.SystemPrompt != "" {
-		args = append(args, "--prompt", opts.SystemPrompt)
 	}
 	if opts.MaxTurns > 0 {
 		b.cfg.Logger.Warn("opencode does not support --max-turns; ignoring", "maxTurns", opts.MaxTurns)
@@ -48,7 +51,7 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	if opts.ResumeSessionID != "" {
 		args = append(args, "--session", opts.ResumeSessionID)
 	}
-	args = append(args, prompt)
+	args = append(args, userMessage)
 
 	cmd := exec.CommandContext(runCtx, execPath, args...)
 	if opts.Cwd != "" {

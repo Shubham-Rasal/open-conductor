@@ -1,8 +1,15 @@
+export type WorkspaceType = "local" | "remote";
+
 export interface Workspace {
   id: string;
   name: string;
   slug: string;
   prefix: string;
+  description: string | null;
+  type: WorkspaceType;
+  connection_url: string | null;
+  /** Absolute or home-relative path; agent CLIs use this as process working directory for tasks. */
+  working_directory: string | null;
   created_at: string;
   updated_at: string;
 }

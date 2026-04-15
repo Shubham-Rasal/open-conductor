@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -37,7 +38,7 @@ type daemonRegisterRequest struct {
 	AgentID      string  `json:"agent_id"`
 	Provider     string  `json:"provider"`
 	DeviceName   string  `json:"device_name"`
-	DefaultModel *string `json:"default_model"` // suggested model for this provider
+	DefaultModel *string `json:"default_model"`
 }
 
 func daemonRegister(s *Store) http.HandlerFunc {
@@ -74,20 +75,30 @@ func daemonRegister(s *Store) http.HandlerFunc {
 	}
 }
 
-// startDaemonForAgent upserts the runtime row, sets agent idle, applies optional model, and starts the runner.
+// startDaemonForAgent upserts the runtime row for (agent, workspace), sets agent idle, starts the runner.
 func startDaemonForAgent(ctx context.Context, s *Store, agentID pgtype.UUID, provider string, deviceName *string, defaultModel *string) (db.AgentRuntime, error) {
 	if provider == "" {
 		provider = "claude"
 	}
+	ag, err := s.Q.GetAgent(ctx, agentID)
+	if err != nil {
+		return db.AgentRuntime{}, fmt.Errorf("get agent: %w", err)
+	}
+	ws, err := s.Q.GetWorkspace(ctx, ag.WorkspaceID)
+	if err != nil {
+		return db.AgentRuntime{}, fmt.Errorf("get workspace: %w", err)
+	}
+
 	dn := deviceName
 	if dn == nil || (dn != nil && *dn == "") {
 		h, _ := os.Hostname()
 		dn = &h
 	}
 	runtime, err := s.Q.UpsertAgentRuntime(ctx, db.UpsertAgentRuntimeParams{
-		AgentID:    agentID,
-		Provider:   provider,
-		DeviceName: dn,
+		AgentID:     agentID,
+		WorkspaceID: ag.WorkspaceID,
+		Provider:    provider,
+		DeviceName:  dn,
 	})
 	if err != nil {
 		return db.AgentRuntime{}, err
@@ -102,7 +113,7 @@ func startDaemonForAgent(ctx context.Context, s *Store, agentID pgtype.UUID, pro
 			Model: defaultModel,
 		})
 	}
-	runner.Global.Start(ctx, s.Q, agentID, provider, Broadcast)
+	runner.Global.Start(ctx, s.Q, runtime.ID, agentID, ag.WorkspaceID, provider, ws.Type, ws.ConnectionUrl, Broadcast)
 	return runtime, nil
 }
 
@@ -111,7 +122,8 @@ func startDaemonForAgent(ctx context.Context, s *Store, agentID pgtype.UUID, pro
 func daemonHeartbeat(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			AgentID string `json:"agent_id"`
+			AgentID       string `json:"agent_id"`
+			WorkspaceID   string `json:"workspace_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
 			http.Error(w, "agent_id required", http.StatusBadRequest)
@@ -124,7 +136,20 @@ func daemonHeartbeat(s *Store) http.HandlerFunc {
 			return
 		}
 
-		if err := s.Q.UpdateAgentRuntimeHeartbeat(r.Context(), agentID); err != nil {
+		workspaceID := parseUUID(body.WorkspaceID)
+		if !workspaceID.Valid {
+			ag, err := s.Q.GetAgent(r.Context(), agentID)
+			if err != nil {
+				http.Error(w, "agent not found", http.StatusBadRequest)
+				return
+			}
+			workspaceID = ag.WorkspaceID
+		}
+
+		if err := s.Q.UpdateAgentRuntimeHeartbeat(r.Context(), db.UpdateAgentRuntimeHeartbeatParams{
+			AgentID:     agentID,
+			WorkspaceID: workspaceID,
+		}); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -152,18 +177,26 @@ func claimTask(s *Store) http.HandlerFunc {
 		}
 
 		agentID := parseUUID(body.AgentID)
-		task, err := s.Q.ClaimAgentTask(r.Context(), agentID)
+		ag, err := s.Q.GetAgent(r.Context(), agentID)
+		if err != nil {
+			http.Error(w, "agent not found", http.StatusBadRequest)
+			return
+		}
+
+		task, err := s.Q.ClaimAgentTask(r.Context(), db.ClaimAgentTaskParams{
+			AgentID:     agentID,
+			WorkspaceID: ag.WorkspaceID,
+		})
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(nil)
 			return
 		}
 
-		agent, _ := s.Q.GetAgent(r.Context(), agentID)
 		writeJSON(w, claimTaskResponse{
 			Task:         &task,
-			AgentName:    agent.Name,
-			Instructions: agent.Instructions,
+			AgentName:    ag.Name,
+			Instructions: ag.Instructions,
 		})
 	}
 }

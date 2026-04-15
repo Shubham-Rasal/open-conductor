@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,7 +16,7 @@ import (
 )
 
 func RegisterAgentRoutes(r chi.Router, s *Store) {
-	r.Get("/detect-agents", detectAgents())
+	r.Get("/detect-agents", detectAgents(s))
 	r.Route("/workspaces/{workspaceId}/agents", func(r chi.Router) {
 		r.Get("/", listAgents(s))
 		r.Post("/", createAgent(s))
@@ -27,9 +28,20 @@ func RegisterAgentRoutes(r chi.Router, s *Store) {
 	})
 }
 
-func detectAgents() http.HandlerFunc {
+func detectAgents(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tools := agentpkg.DetectAll(r.Context())
+		var remoteURL *string
+		if wsID := strings.TrimSpace(r.URL.Query().Get("workspace_id")); wsID != "" {
+			id := parseUUID(wsID)
+			if id.Valid {
+				if ws, err := s.Q.GetWorkspace(r.Context(), id); err == nil {
+					if ws.Type == "remote" && ws.ConnectionUrl != nil && *ws.ConnectionUrl != "" {
+						remoteURL = ws.ConnectionUrl
+					}
+				}
+			}
+		}
+		tools := agentpkg.DetectAll(r.Context(), remoteURL)
 		if tools == nil {
 			tools = []agentpkg.DetectedTool{}
 		}
@@ -169,9 +181,11 @@ func testAgentIntegration(s *Store) http.HandlerFunc {
 			return
 		}
 
-		runnerActive := runner.Global.IsRunning(id)
-
-		rt, rtErr := s.Q.GetAgentRuntimeByAgent(r.Context(), id)
+		rt, rtErr := s.Q.GetAgentRuntimeByAgentAndWorkspace(r.Context(), db.GetAgentRuntimeByAgentAndWorkspaceParams{
+			AgentID:     id,
+			WorkspaceID: wsID,
+		})
+		runnerActive := rtErr == nil && rt.ID.Valid && runner.Global.IsRunning(rt.ID)
 		heartbeatFresh := false
 		dbSaysOnline := false
 		provider := ""
@@ -230,9 +244,21 @@ func disconnectAgent(s *Store) http.HandlerFunc {
 			return
 		}
 
-		_ = s.Q.CancelQueuedTasksForAgent(r.Context(), id)
-		runner.Global.Stop(id)
-		_ = s.Q.SetAgentRuntimeOfflineByAgent(r.Context(), id)
+		rt, rtErr := s.Q.GetAgentRuntimeByAgentAndWorkspace(r.Context(), db.GetAgentRuntimeByAgentAndWorkspaceParams{
+			AgentID:     id,
+			WorkspaceID: wsID,
+		})
+		_ = s.Q.CancelQueuedTasksForAgent(r.Context(), db.CancelQueuedTasksForAgentParams{
+			AgentID:     id,
+			WorkspaceID: wsID,
+		})
+		if rtErr == nil && rt.ID.Valid {
+			runner.Global.Stop(rt.ID)
+		}
+		_ = s.Q.SetAgentRuntimeOfflineByAgent(r.Context(), db.SetAgentRuntimeOfflineByAgentParams{
+			AgentID:     id,
+			WorkspaceID: wsID,
+		})
 		_ = s.Q.UpdateAgentStatusOnly(r.Context(), db.UpdateAgentStatusOnlyParams{ID: id, Status: "offline"})
 		broadcastEvent("agent:status", map[string]any{"agent_id": formatUUID(id), "status": "offline"})
 		writeJSON(w, map[string]string{"status": "disconnected"})
@@ -264,7 +290,10 @@ func reconnectAgent(s *Store) http.HandlerFunc {
 
 		provider := req.Provider
 		if provider == "" {
-			if rt, e := s.Q.GetAgentRuntimeByAgent(r.Context(), id); e == nil {
+			if rt, e := s.Q.GetAgentRuntimeByAgentAndWorkspace(r.Context(), db.GetAgentRuntimeByAgentAndWorkspaceParams{
+				AgentID:     id,
+				WorkspaceID: wsID,
+			}); e == nil {
 				provider = rt.Provider
 			}
 		}
@@ -277,13 +306,13 @@ func reconnectAgent(s *Store) http.HandlerFunc {
 			dm = ag.Model
 		}
 
-		rt, err := startDaemonForAgent(context.Background(), s, id, provider, req.DeviceName, dm)
+		runtimeRow, err := startDaemonForAgent(context.Background(), s, id, provider, req.DeviceName, dm)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		broadcastEvent("agent:status", map[string]any{"agent_id": formatUUID(id), "status": "idle"})
-		writeJSON(w, rt)
+		writeJSON(w, runtimeRow)
 	}
 }
 

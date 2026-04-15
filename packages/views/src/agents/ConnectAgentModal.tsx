@@ -4,6 +4,7 @@ import { useCoreContext } from "@open-conductor/core/platform";
 import { agentKeys } from "@open-conductor/core/agents";
 import type { DetectedTool } from "@open-conductor/core/agents";
 import type { Agent } from "@open-conductor/core/types";
+import { ProviderIcon } from "./ProviderIcon";
 
 interface Props {
   tool: DetectedTool;
@@ -58,19 +59,13 @@ export function ConnectAgentModal({ tool, onClose }: Props) {
     }
   }
 
-  const providerIcons: Record<string, string> = {
-    claude: "✦",
-    opencode: "◈",
-    codex: "⬡",
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl">
         {/* Header */}
         <div className="mb-5 flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-sidebar-accent text-lg font-bold text-sidebar-accent-foreground">
-            {providerIcons[tool.provider] ?? "◉"}
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:h-8 [&_svg]:w-8">
+            <ProviderIcon provider={tool.provider} className="h-8 w-8" />
           </span>
           <div>
             <h2 className="text-base font-semibold text-foreground">Connect {tool.label}</h2>

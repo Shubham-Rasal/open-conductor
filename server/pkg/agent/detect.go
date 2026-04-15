@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -52,11 +53,16 @@ type DetectedTool struct {
 	DefaultModel string `json:"default_model"`    // suggested model string for ExecOptions
 	Available    bool   `json:"available"`        // false if provider backend is unreachable
 	Reason       string `json:"reason,omitempty"` // why unavailable
+	Warning      string `json:"warning,omitempty"` // non-blocking hint (e.g. local API from opencode.json not reachable yet)
 }
 
 // DetectAll probes PATH for known AI CLI tools and returns those found,
 // including availability status for each.
-func DetectAll(ctx context.Context) []DetectedTool {
+// If remoteBaseURL is non-empty, probes that server's GET {url}/api/detect-agents instead (remote workspace).
+func DetectAll(ctx context.Context, remoteBaseURL *string) []DetectedTool {
+	if remoteBaseURL != nil && strings.TrimSpace(*remoteBaseURL) != "" {
+		return detectRemoteAgents(ctx, strings.TrimRight(strings.TrimSpace(*remoteBaseURL), "/"))
+	}
 	var found []DetectedTool
 
 	// ── Claude Code ──────────────────────────────────────────────────────────
@@ -81,10 +87,11 @@ func DetectAll(ctx context.Context) []DetectedTool {
 	if opPath != "" {
 		version, _ := DetectVersion(ctx, opPath)
 		tool := DetectedTool{
-			Provider: "opencode",
-			Path:     opPath,
-			Version:  version,
-			Label:    "OpenCode",
+			Provider:  "opencode",
+			Path:      opPath,
+			Version:   version,
+			Label:     "OpenCode",
+			Available: true,
 		}
 		model, baseURL, probeErr := probeOpencode()
 		if probeErr != nil {
@@ -92,16 +99,16 @@ func DetectAll(ctx context.Context) []DetectedTool {
 			tool.Reason = probeErr.Error()
 		} else if strings.TrimSpace(baseURL) == "" {
 			// No local API base — cloud / default routing. Do not GET "/models" (baseURL empty used to build bogus "/models").
-			tool.Available = true
 			tool.DefaultModel = model
 		} else {
 			modelsURL := strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/models"
 			if reachable, reason := checkURL(ctx, modelsURL); reachable {
-				tool.Available = true
 				tool.DefaultModel = model
 			} else {
-				tool.Available = false
-				tool.Reason = reason
+				// Config points at a local API (e.g. Ollama) that is not up yet. Still list OpenCode as
+				// available — the CLI is installed; runtime errors are clearer than blocking Connect here.
+				tool.DefaultModel = model
+				tool.Warning = reason
 			}
 		}
 		found = append(found, tool)
@@ -120,6 +127,45 @@ func DetectAll(ctx context.Context) []DetectedTool {
 	}
 
 	return found
+}
+
+func detectRemoteAgents(ctx context.Context, base string) []DetectedTool {
+	u := base + "/api/detect-agents"
+	tctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(tctx, http.MethodGet, u, nil)
+	if err != nil {
+		return []DetectedTool{{
+			Provider: "remote",
+			Label:    "Remote workspace",
+			Reason:   err.Error(),
+		}}
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return []DetectedTool{{
+			Provider: "remote",
+			Label:    "Remote workspace",
+			Reason:   "remote probe failed: " + err.Error(),
+		}}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return []DetectedTool{{
+			Provider: "remote",
+			Label:    "Remote workspace",
+			Reason:   fmt.Sprintf("remote returned HTTP %d", resp.StatusCode),
+		}}
+	}
+	var tools []DetectedTool
+	if err := json.NewDecoder(resp.Body).Decode(&tools); err != nil {
+		return []DetectedTool{{
+			Provider: "remote",
+			Label:    "Remote workspace",
+			Reason:   "invalid JSON from remote detect-agents",
+		}}
+	}
+	return tools
 }
 
 // probeOpencode reads the opencode config and returns (model, baseURL, error).

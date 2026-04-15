@@ -12,7 +12,7 @@ func TestDetectAgentsReturnsJSON(t *testing.T) {
 	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/detect-agents", nil)
 	rr := httptest.NewRecorder()
-	detectAgents()(rr, req)
+	detectAgents(&Store{})(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status: %d", rr.Code)

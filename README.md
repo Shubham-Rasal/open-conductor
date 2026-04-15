@@ -1,159 +1,108 @@
-# Turborepo starter
+# Open Conductor
 
-This Turborepo starter is maintained by the Turborepo core team.
+Open Conductor is a desktop app for managed local agent swarms.
 
-## Using this example
+## Repository layout
 
-Run the following command:
+| Path | Role |
+|------|------|
+| `apps/desktop` | Electron + React UI (issues, agents, connect/disconnect/reconnect) |
+| `server` | HTTP/WebSocket API, task queue, agent runners |
+| `packages/core` | Shared API client, React Query, workspace context |
+| `packages/views` | Feature views consumed by the desktop app |
+| `packages/ui` | Shared UI primitives |
+| `apps/web`, `apps/docs` | Optional Next.js apps (not required for the main product) |
 
-```sh
-npx create-turbo@latest
-```
+Monorepo tooling: **pnpm**, **Turbo**, **TypeScript**.
 
-## What's inside?
+## Prerequisites
 
-This Turborepo includes the following packages/apps:
+- **Node.js** ≥ 18, **pnpm** 9
+- **Go** 1.22+
+- **PostgreSQL** (local or Docker)
+- Optional: **Claude Code**, **OpenCode**, and/or **Codex** on `PATH` for agent features
 
-### Apps and Packages
+## Quick start
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+### 1. Database
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+Create a database (example name `open_conductor`) and copy the environment file:
 
 ```sh
-cd my-turborepo
-turbo build
+cp .env.example .env
+# Edit DATABASE_URL if needed
 ```
 
-Without global `turbo`, use your package manager:
+### 2. Migrations
+
+From the `server` directory (with `DATABASE_URL` set, e.g. via `.env` in repo root):
 
 ```sh
-cd my-turborepo
-npx turbo build
-pnpm dlx turbo build
-pnpm exec turbo build
+cd server
+go run ./cmd/migrate
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+### 3. API server
 
 ```sh
-turbo build --filter=docs
+cd server
+go run ./cmd/server
 ```
 
-Without global `turbo`:
+Default listen address: `http://localhost:8080` (override with `PORT`).
+
+### 4. Desktop app
+
+In a second terminal, from the **repository root**:
 
 ```sh
-npx turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+pnpm install
+pnpm exec turbo dev --filter=@open-conductor/desktop
 ```
 
-### Develop
+The renderer is configured to use `http://localhost:8080` for the API and `ws://localhost:8080/ws` for WebSockets (see `apps/desktop/src/renderer/src/App.tsx`). Start the Go server before the UI.
 
-To develop all apps and packages, run the following command:
+## Environment variables
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `PORT` | No | HTTP port (default `8080`) |
+| `JWT_SECRET` | No | JWT signing for auth routes |
+| `CORS_ORIGIN` | No | CORS allowlist for browser clients |
+| `OPENCODE_PATH` | No | Absolute path or name on `PATH` for the OpenCode binary (see also `MULTICA_OPENCODE_PATH` for compatibility) |
+
+See `.env.example` for a template.
+
+## Agents
+
+- **Discover**: `GET /api/detect-agents` lists CLIs found on the host.
+- **Connect**: Creates an agent record and calls `POST /api/daemon/register` to start the in-process **runner** for that agent.
+- **Disconnect / reconnect**: `POST /api/workspaces/{workspaceId}/agents/{agentId}/disconnect` and `.../reconnect` (workspace-scoped).
+- **OpenCode**: Config is read from `XDG_CONFIG_HOME/opencode/opencode.json` or `~/.config/opencode/opencode.json`. If no local API `baseURL` is set, discovery treats the install as available without probing a bogus `/models` URL.
+
+## Scripts (root)
 
 ```sh
-cd my-turborepo
-turbo dev
+pnpm build          # turbo build
+pnpm dev            # turbo dev (all packages that define dev)
+pnpm lint           # turbo lint
+pnpm check-types    # turbo check-types
 ```
 
-Without global `turbo`, use your package manager:
+## Tests (Go)
 
 ```sh
-cd my-turborepo
-npx turbo dev
-pnpm exec turbo dev
-pnpm exec turbo dev
+cd server
+go test ./...
 ```
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+Live CLI **integration** pings (Claude / Codex) are opt-in:
 
 ```sh
-turbo dev --filter=web
+INTEGRATION_AGENT=1 go test ./pkg/agent/... -run 'Integration.*Ping' -timeout=10m -v
 ```
 
-Without global `turbo`:
+## License
 
-```sh
-npx turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-pnpm exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-pnpm exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+See the repository license file if one is present; otherwise refer to the project owners.

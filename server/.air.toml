@@ -1,0 +1,17 @@
+# Air: https://github.com/air-verse/air
+# Install: go install github.com/air-verse/air@latest
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "./tmp/main"
+  cmd = "go build -o ./tmp/main ./cmd/server"
+  delay = 200
+  exclude_dir = ["tmp", "vendor", "pkg/db/migrations"]
+  include_ext = ["go", "mod", "sum"]
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = true

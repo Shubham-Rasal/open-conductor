@@ -3,6 +3,7 @@ export type AgentStatus = "idle" | "working" | "blocked" | "error" | "offline";
 export interface AgentRuntime {
   id: string;
   agent_id: string;
+  workspace_id: string;
   provider: string;
   status: "online" | "offline";
   device_name: string | null;

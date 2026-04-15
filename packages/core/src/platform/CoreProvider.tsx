@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider, useQueryClient, useQuery } from "@tanstack/react-query";
-import { type ReactNode, createContext, useContext, useRef, useEffect, useState } from "react";
+import { type ReactNode, createContext, useContext, useRef, useEffect } from "react";
 import { ApiClient } from "../api/client";
 import { WsClient } from "../api/ws";
 import { useAuthStore } from "../auth/store";
 import { onIssueCreated, onIssueUpdated, onIssueDeleted, issueKeys } from "../issues";
 import { agentKeys, type ListAgentsResponse } from "../agents";
+import { workspaceListOptions } from "../workspaces/queries";
+import { useWorkspaceStore } from "../workspaces/store";
 import type { Issue, Agent, AgentTask, TaskMessage, TaskStageEvent } from "../types";
 
 interface CoreContextValue {
@@ -63,10 +65,8 @@ function WsEventBridge({ workspaceId }: { workspaceId: string }) {
       const evt = e.payload as TaskStageEvent;
       if (!evt.issue_id) return;
 
-      // Invalidate task list for this issue so it refetches
       qc.invalidateQueries({ queryKey: issueKeys.tasks(workspaceId, evt.issue_id) });
 
-      // Optimistically patch the task in the cache
       qc.setQueriesData<AgentTask[]>(
         { queryKey: issueKeys.tasks(workspaceId, evt.issue_id) },
         (old) => {
@@ -88,7 +88,6 @@ function WsEventBridge({ workspaceId }: { workspaceId: string }) {
         }
       );
 
-      // If completed, clear live messages for this issue
       if (evt.stage === "completed" || evt.stage === "failed") {
         taskMessagesStore.delete(evt.issue_id);
       }
@@ -100,11 +99,10 @@ function WsEventBridge({ workspaceId }: { workspaceId: string }) {
       if (!msg.issue_id) return;
       const prev = taskMessagesStore.get(msg.issue_id) ?? [];
       taskMessagesStore.set(msg.issue_id, [...prev, msg]);
-      // Trigger query cache "touch" so subscribers re-render
       qc.setQueryData(["task:messages", msg.issue_id], [...(taskMessagesStore.get(msg.issue_id) ?? [])]);
     });
 
-    // ── Agent status updates ──────────────────────────────────────────────
+    // ── Agent status updates ────────────────────────────────────────────────
     const offAgentStatus = wsClient.on("agent:status", (e) => {
       const { agent_id, status } = e.payload as { agent_id: string; status: string };
       qc.setQueriesData<Agent[]>(
@@ -150,7 +148,10 @@ function DaemonRuntimeHeartbeat({ workspaceId }: { workspaceId: string }) {
             continue;
           }
           try {
-            await apiClient.post("/api/daemon/heartbeat", { agent_id: a.id });
+            await apiClient.post("/api/daemon/heartbeat", {
+              agent_id: a.id,
+              workspace_id: workspaceId,
+            });
           } catch {
             // Transient error — next tick retries
           }
@@ -179,7 +180,8 @@ function WorkspaceBootstrap({
   wsClient: WsClient;
   workspaceId?: string;
 }) {
-  // Resolve workspace: prefer explicit prop, then fetch /api/local (public, no auth needed)
+  const { data: workspaces } = useQuery(workspaceListOptions(apiClient));
+
   const { data: localConfig } = useQuery({
     queryKey: ["local-config"],
     queryFn: () => apiClient.get<{ workspace_id: string }>("/api/local"),
@@ -188,21 +190,30 @@ function WorkspaceBootstrap({
     retry: 3,
   });
 
-  const [autoWorkspaceId, setAutoWorkspaceId] = useState<string | null>(null);
+  const storeWorkspace = useWorkspaceStore((s) => s.workspace);
+  const hydrateWorkspace = useWorkspaceStore((s) => s.hydrateWorkspace);
 
   useEffect(() => {
     if (explicitId) return;
-    if (localConfig?.workspace_id) {
-      setAutoWorkspaceId(localConfig.workspace_id);
+    if (!workspaces?.length) return;
+    let preferred: string | null = null;
+    try {
+      preferred = localStorage.getItem("oc_workspace_id");
+    } catch {
+      /* ignore */
     }
-  }, [localConfig, explicitId]);
+    if (!preferred && localConfig?.workspace_id) {
+      preferred = localConfig.workspace_id;
+    }
+    hydrateWorkspace(workspaces, preferred);
+  }, [explicitId, workspaces, localConfig, hydrateWorkspace]);
 
-  const resolvedId = explicitId ?? autoWorkspaceId;
+  const resolvedId = explicitId ?? storeWorkspace?.id ?? localConfig?.workspace_id ?? "";
 
   const ctxValue: CoreContextValue = {
     apiClient,
     wsClient,
-    workspaceId: resolvedId ?? "",
+    workspaceId: resolvedId,
     taskMessages: taskMessagesStore,
   };
 

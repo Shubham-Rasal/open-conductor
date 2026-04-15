@@ -28,6 +28,10 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
+	if cwd, err := os.Getwd(); err == nil {
+		slog.Info("current directory", "path", cwd)
+	}
+
 	// Database
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -75,7 +79,7 @@ func main() {
 			return
 		}
 		for _, rt := range runtimes {
-			runner.Global.Start(context.Background(), queries, rt.AgentID, rt.Provider, handler.Broadcast)
+			runner.Global.Start(context.Background(), queries, rt.ID, rt.AgentID, rt.WorkspaceID, rt.Provider, rt.WorkspaceType, rt.ConnectionUrl, handler.Broadcast)
 		}
 		slog.Info("resumed runners", "count", len(runtimes))
 	}()
@@ -174,9 +178,13 @@ func bootstrapWorkspace(ctx context.Context, q *db.Queries) (db.Workspace, error
 		return ws, nil
 	}
 	return q.CreateWorkspace(ctx, db.CreateWorkspaceParams{
-		Name:   "Local",
-		Slug:   "local",
-		Prefix: "LOC",
+		Name:               "Local",
+		Slug:               "local",
+		Prefix:             "LOC",
+		Description:        nil,
+		Type:               "local",
+		ConnectionUrl:      nil,
+		WorkingDirectory:   nil,
 	})
 }
 

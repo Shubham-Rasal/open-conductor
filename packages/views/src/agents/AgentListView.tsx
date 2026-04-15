@@ -3,9 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentKeys, agentListOptions, detectAgentsOptions } from "@open-conductor/core/agents";
 import type { DetectedTool } from "@open-conductor/core/agents";
 import { useCoreContext } from "@open-conductor/core/platform";
+import { workspaceListOptions } from "@open-conductor/core/workspaces";
 import type { Agent, AgentIntegrationTestResult } from "@open-conductor/core/types";
 import { ConnectAgentModal } from "./ConnectAgentModal";
 import { EditAgentPromptModal } from "./EditAgentPromptModal";
+import { ProviderIcon } from "./ProviderIcon";
 
 // ─── Status dot ────────────────────────────────────────────────────────────────
 
@@ -15,14 +17,6 @@ const STATUS_DOT: Record<string, string> = {
   blocked: "bg-warning",
   error:   "bg-destructive",
   offline: "bg-muted-foreground",
-};
-
-// ─── Provider icon / label ────────────────────────────────────────────────────
-
-const PROVIDER_ICON: Record<string, string> = {
-  claude:   "✦",
-  opencode: "◈",
-  codex:    "⬡",
 };
 
 // ─── Detected tool row ────────────────────────────────────────────────────────
@@ -40,14 +34,17 @@ function DetectedToolRow({
 
   return (
     <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${unavailable ? "border-border/50 bg-muted/30 opacity-70" : "border-border bg-card"}`}>
-      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-sidebar-accent text-base font-bold text-sidebar-accent-foreground">
-        {PROVIDER_ICON[tool.provider] ?? "◉"}
+      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-sidebar-accent text-sidebar-accent-foreground [&_svg]:h-6 [&_svg]:w-6">
+        <ProviderIcon provider={tool.provider} className="h-6 w-6" />
       </span>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground">{tool.label}</p>
         <p className="text-xs text-muted-foreground">v{tool.version} · {tool.path}</p>
         {tool.default_model && (
           <p className="text-[11px] text-muted-foreground/70">model: {tool.default_model}</p>
+        )}
+        {tool.warning && (
+          <p className="text-[11px] text-amber-700 dark:text-amber-600">⚠ {tool.warning}</p>
         )}
         {unavailable && tool.reason && (
           <p className="text-[11px] text-destructive/80">⚠ {tool.reason}</p>
@@ -234,8 +231,12 @@ export function AgentListView() {
     agentListOptions(apiClient, workspaceId)
   );
   const { data: detected = [], isLoading: detectLoading } = useQuery(
-    detectAgentsOptions(apiClient)
+    detectAgentsOptions(apiClient, workspaceId)
   );
+  const { data: workspaces = [] } = useQuery(workspaceListOptions(apiClient));
+  const currentWs = workspaces.find((w) => w.id === workspaceId);
+  const detectSectionTitle =
+    currentWs?.type === "remote" ? "Tools from remote workspace" : "Available on this machine";
 
   // Which providers are already connected?
   // We don't store provider on Agent yet, so we use name matching as a heuristic.
@@ -248,9 +249,9 @@ export function AgentListView() {
   );
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex h-full flex-col bg-canvas">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-6 py-4">
+      <div className="flex items-center justify-between border-b border-border/70 bg-background/40 px-6 py-4 backdrop-blur-sm">
         <h1 className="text-sm font-semibold text-foreground">Agents</h1>
       </div>
 
@@ -258,7 +259,7 @@ export function AgentListView() {
         {/* ── Detected tools section ── */}
         <div className="px-6 pt-5 pb-2">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Available on this machine
+            {detectSectionTitle}
           </p>
 
           {detectLoading && (

@@ -5,7 +5,7 @@ import type { Agent, AgentRuntime } from "../types";
 export const agentKeys = {
   list: (wsId: string) => ["agents", wsId, "list"] as const,
   detail: (wsId: string, id: string) => ["agents", wsId, "detail", id] as const,
-  detected: () => ["agents", "detected"] as const,
+  detected: (wsId?: string) => ["agents", "detected", wsId ?? "none"] as const,
 };
 
 export interface ListAgentsResponse {
@@ -22,6 +22,8 @@ export interface DetectedTool {
   default_model: string;
   available: boolean;
   reason?: string;
+  /** Non-blocking hint (e.g. local LLM from opencode.json not reachable). */
+  warning?: string;
 }
 
 export function agentListOptions(api: ApiClient, wsId: string) {
@@ -38,10 +40,12 @@ export function agentListOptions(api: ApiClient, wsId: string) {
   });
 }
 
-export function detectAgentsOptions(api: ApiClient) {
+export function detectAgentsOptions(api: ApiClient, workspaceId?: string) {
+  const q = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : "";
   return queryOptions({
-    queryKey: agentKeys.detected(),
-    queryFn: () => api.get<DetectedTool[]>("/api/detect-agents"),
+    queryKey: agentKeys.detected(workspaceId),
+    queryFn: () => api.get<DetectedTool[]>(`/api/detect-agents${q}`),
     staleTime: 60_000,
+    enabled: Boolean(workspaceId),
   });
 }

@@ -27,9 +27,11 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue) e
 	}
 
 	_, err := s.q.EnqueueTask(ctx, db.EnqueueTaskParams{
-		AgentID:  issue.AssigneeID,
-		IssueID:  issue.ID,
-		Priority: 0,
+		AgentID:          issue.AssigneeID,
+		IssueID:          issue.ID,
+		Priority:         0,
+		TriggerCommentID: pgtype.UUID{Valid: false},
+		WorkspaceID:      issue.WorkspaceID,
 	})
 	if err != nil {
 		return fmt.Errorf("enqueue task: %w", err)

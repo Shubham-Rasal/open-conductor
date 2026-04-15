@@ -1,35 +1,39 @@
 // Package runner implements the in-process task execution loop.
-// Each Runner watches a single agent's task queue, claims tasks, spawns the
-// configured CLI backend (claude, opencode, codex), and reports results back
-// to the database + WebSocket clients.
+// Each Runner watches a single agent runtime (agent + workspace), claims tasks with
+// workspace-scoped concurrency, and runs LocalExecutor or RemoteExecutor.
 package runner
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	agentpkg "github.com/Shubham-Rasal/open-conductor/server/pkg/agent"
 	db "github.com/Shubham-Rasal/open-conductor/server/pkg/db/generated"
 )
 
-// Registry manages all active runners and prevents duplicates.
+// Registry manages active runners (one per agent runtime — unique by runtime row id).
 type Registry struct {
 	mu      sync.Mutex
-	running map[string]context.CancelFunc // keyed by agent UUID string
+	running map[string]context.CancelFunc // keyed by runtime UUID hex
 }
 
 var Global = &Registry{running: make(map[string]context.CancelFunc)}
 
-// Start launches a runner for agentID if one isn't already running.
-func (reg *Registry) Start(parentCtx context.Context, q *db.Queries, agentID pgtype.UUID, provider string, broadcast func([]byte)) {
-	key := fmt.Sprintf("%x", agentID.Bytes)
+// Start launches a worker pool for one runtime if not already running.
+func (reg *Registry) Start(parentCtx context.Context, q *db.Queries, runtimeID, agentID, workspaceID pgtype.UUID, provider, workspaceType string, connectionURL *string, broadcast func([]byte)) {
+	key := fmt.Sprintf("%x", runtimeID.Bytes)
 	reg.mu.Lock()
 	if _, exists := reg.running[key]; exists {
 		reg.mu.Unlock()
@@ -39,7 +43,19 @@ func (reg *Registry) Start(parentCtx context.Context, q *db.Queries, agentID pgt
 	reg.running[key] = cancel
 	reg.mu.Unlock()
 
-	r := &Runner{q: q, agentID: agentID, provider: provider, broadcast: broadcast}
+	ex := newExecutor(provider, workspaceType, connectionURL, slog.Default())
+	r := &Runner{
+		q:               q,
+		runtimeID:       runtimeID,
+		agentID:         agentID,
+		workspaceID:     workspaceID,
+		provider:        provider,
+		workspaceType:   workspaceType,
+		connectionURL:   connectionURL,
+		executor:        ex,
+		broadcast:       broadcast,
+		concurrentTasks: atomic.Int32{},
+	}
 	go func() {
 		defer func() {
 			reg.mu.Lock()
@@ -49,24 +65,24 @@ func (reg *Registry) Start(parentCtx context.Context, q *db.Queries, agentID pgt
 		r.loop(ctx)
 	}()
 
-	slog.Info("runner started", "agent_id", key, "provider", provider)
+	slog.Info("runner started", "runtime_id", key, "agent_id", fmt.Sprintf("%x", agentID.Bytes), "provider", provider)
 }
 
-// IsRunning reports whether a task runner goroutine is active for this agent.
-func (reg *Registry) IsRunning(agentID pgtype.UUID) bool {
-	if !agentID.Valid {
+// IsRunning reports whether a runner is active for this runtime id.
+func (reg *Registry) IsRunning(runtimeID pgtype.UUID) bool {
+	if !runtimeID.Valid {
 		return false
 	}
-	key := fmt.Sprintf("%x", agentID.Bytes)
+	key := fmt.Sprintf("%x", runtimeID.Bytes)
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 	_, ok := reg.running[key]
 	return ok
 }
 
-// Stop cancels the runner for agentID (if running).
-func (reg *Registry) Stop(agentID pgtype.UUID) {
-	key := fmt.Sprintf("%x", agentID.Bytes)
+// Stop cancels the runner for the given runtime id (if running).
+func (reg *Registry) Stop(runtimeID pgtype.UUID) {
+	key := fmt.Sprintf("%x", runtimeID.Bytes)
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 	if cancel, ok := reg.running[key]; ok {
@@ -74,33 +90,69 @@ func (reg *Registry) Stop(agentID pgtype.UUID) {
 	}
 }
 
-// Runner claims and executes tasks for one agent.
+// Runner claims and executes tasks for one agent runtime.
 type Runner struct {
-	q         *db.Queries
-	agentID   pgtype.UUID
-	provider  string
-	broadcast func([]byte)
+	q               *db.Queries
+	runtimeID       pgtype.UUID
+	agentID         pgtype.UUID
+	workspaceID     pgtype.UUID
+	provider        string
+	workspaceType   string
+	connectionURL   *string
+	executor        Executor
+	broadcast       func([]byte)
+	concurrentTasks atomic.Int32
 }
 
 func (r *Runner) loop(ctx context.Context) {
+	ag, err := r.q.GetAgent(ctx, r.agentID)
+	if err != nil {
+		slog.Error("runner loop: get agent", "err", err)
+		return
+	}
+	n := int(ag.MaxConcurrentTasks)
+	if n < 1 {
+		n = 1
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.workerLoop(ctx)
+		}()
+	}
+	wg.Wait()
+}
+
+func (r *Runner) workerLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-
-		task, err := r.q.ClaimAgentTask(ctx, r.agentID)
+		task, err := r.q.ClaimAgentTask(ctx, db.ClaimAgentTaskParams{
+			AgentID:     r.agentID,
+			WorkspaceID: r.workspaceID,
+		})
 		if err != nil {
-			// No task available — sleep and retry
+			if errors.Is(err, pgx.ErrNoRows) {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(2 * time.Second):
+				}
+				continue
+			}
+			slog.Warn("claim task", "err", err)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(5 * time.Second):
+			case <-time.After(2 * time.Second):
 			}
 			continue
 		}
-
 		r.executeTask(ctx, task)
 	}
 }
@@ -132,8 +184,15 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 
 	slog.Info("executing task", "task_id", taskIDStr, "agent_id", agentIDStr)
 
-	// Mark agent as working + move issue → in_progress
-	r.setAgentStatus(ctx, "working")
+	if r.concurrentTasks.Add(1) == 1 {
+		r.setAgentStatus(ctx, "working")
+	}
+	defer func() {
+		if r.concurrentTasks.Add(-1) == 0 {
+			r.setAgentStatus(ctx, "idle")
+		}
+	}()
+
 	r.setIssueStatus(ctx, task, "in_progress")
 	r.broadcastEvent("task:stage", map[string]any{
 		"task_id":  taskIDStr,
@@ -141,12 +200,18 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		"stage":    "dispatched",
 	})
 
-	defer func() {
-		r.setAgentStatus(ctx, "idle")
-	}()
+	wsRow, wsErr := r.q.GetWorkspace(ctx, r.workspaceID)
+	workDir := ""
+	if wsErr == nil && wsRow.WorkingDirectory != nil {
+		workDir = strings.TrimSpace(*wsRow.WorkingDirectory)
+		if strings.HasPrefix(workDir, "~/") {
+			if home, err := os.UserHomeDir(); err == nil {
+				workDir = filepath.Join(home, strings.TrimPrefix(workDir, "~/"))
+			}
+		}
+	}
 
-	// Build prompt from the issue
-	prompt, err := r.buildPrompt(ctx, task)
+	prompt, err := r.buildPrompt(ctx, task, workDir)
 	if err != nil {
 		slog.Error("build prompt", "err", err)
 		r.setIssueStatus(ctx, task, "blocked")
@@ -154,7 +219,6 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		return
 	}
 
-	// Get agent details (instructions = system prompt)
 	agentRow, err := r.q.GetAgent(ctx, r.agentID)
 	if err != nil {
 		r.setIssueStatus(ctx, task, "blocked")
@@ -162,18 +226,10 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		return
 	}
 
-	// Get last session ID for resume
-	lastSession, _ := r.q.GetLastCompletedSession(ctx, r.agentID)
-
-	// Build and execute backend
-	backend, err := agentpkg.New(r.provider, agentpkg.Config{
-		Logger: slog.Default(),
+	lastSession, _ := r.q.GetLastCompletedSession(ctx, db.GetLastCompletedSessionParams{
+		AgentID:     r.agentID,
+		WorkspaceID: r.workspaceID,
 	})
-	if err != nil {
-		r.setIssueStatus(ctx, task, "blocked")
-		r.failTask(ctx, task.ID, issueIDStr, fmt.Sprintf("unknown provider %q", r.provider))
-		return
-	}
 
 	execCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
@@ -188,16 +244,18 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 	if lastSession != nil && *lastSession != "" {
 		opts.ResumeSessionID = *lastSession
 	}
+	if workDir != "" {
+		opts.Cwd = workDir
+	}
 
-	session, err := backend.Execute(execCtx, prompt, opts)
+	session, err := r.executor.Execute(execCtx, prompt, opts)
 	if err != nil {
-		slog.Error("backend execute", "err", err)
+		slog.Error("executor execute", "err", err)
 		r.setIssueStatus(ctx, task, "blocked")
 		r.failTask(ctx, task.ID, issueIDStr, err.Error())
 		return
 	}
 
-	// Mark task as running
 	_, _ = r.q.StartTask(ctx, task.ID)
 	r.broadcastEvent("task:stage", map[string]any{
 		"task_id":  taskIDStr,
@@ -206,7 +264,6 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 	})
 	slog.Info("task running", "task_id", taskIDStr)
 
-	// Stream messages to WS clients
 	for msg := range session.Messages {
 		switch msg.Type {
 		case agentpkg.MessageText:
@@ -236,7 +293,6 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		}
 	}
 
-	// Collect result
 	result := <-session.Result
 	if result.Status == "completed" {
 		sessionID := result.SessionID
@@ -250,7 +306,6 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 			WorkDir:    &workDir,
 			BranchName: &branch,
 		})
-		// Move issue → in_review so a human can verify the work
 		r.setIssueStatus(ctx, task, "in_review")
 		r.broadcastEvent("task:stage", map[string]any{
 			"task_id":    taskIDStr,
@@ -265,7 +320,6 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		if errMsg == "" {
 			errMsg = result.Status
 		}
-		// Move issue → blocked so it's visible that intervention is needed
 		r.setIssueStatus(ctx, task, "blocked")
 		r.failTask(ctx, task.ID, issueIDStr, errMsg)
 	}
@@ -282,7 +336,6 @@ func (r *Runner) failTask(ctx context.Context, taskID pgtype.UUID, issueIDStr st
 	slog.Error("task failed", "task_id", uuidStr(taskID), "error", errMsg)
 }
 
-// setIssueStatus updates the issue row status and broadcasts an issue:updated event.
 func (r *Runner) setIssueStatus(ctx context.Context, task db.AgentTaskQueue, status string) {
 	if !task.IssueID.Valid {
 		return
@@ -306,7 +359,7 @@ func (r *Runner) broadcastEvent(eventType string, payload any) {
 	r.broadcast(b)
 }
 
-func (r *Runner) buildPrompt(ctx context.Context, task db.AgentTaskQueue) (string, error) {
+func (r *Runner) buildPrompt(ctx context.Context, task db.AgentTaskQueue, workDir string) (string, error) {
 	if !task.IssueID.Valid {
 		return "Complete the assigned task.", nil
 	}
@@ -317,7 +370,7 @@ func (r *Runner) buildPrompt(ctx context.Context, task db.AgentTaskQueue) (strin
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("You are working on issue"))
+	sb.WriteString("You are working on issue")
 	if issue.Number != nil {
 		sb.WriteString(fmt.Sprintf(" #%d", *issue.Number))
 	}
@@ -337,6 +390,10 @@ func (r *Runner) buildPrompt(ctx context.Context, task db.AgentTaskQueue) (strin
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("Complete this task. Work in the current directory.")
+	if workDir != "" {
+		sb.WriteString(fmt.Sprintf("Complete this task. Use %q as the working directory for all file operations.\n", workDir))
+	} else {
+		sb.WriteString("Complete this task. Work in the current directory.")
+	}
 	return sb.String(), nil
 }

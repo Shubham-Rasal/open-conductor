@@ -21,13 +21,14 @@ type Agent struct {
 }
 
 type AgentRuntime struct {
-	ID         pgtype.UUID        `json:"id"`
-	AgentID    pgtype.UUID        `json:"agent_id"`
-	Provider   string             `json:"provider"`
-	Status     string             `json:"status"`
-	DeviceName *string            `json:"device_name"`
-	LastSeenAt pgtype.Timestamptz `json:"last_seen_at"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ID          pgtype.UUID        `json:"id"`
+	AgentID     pgtype.UUID        `json:"agent_id"`
+	Provider    string             `json:"provider"`
+	Status      string             `json:"status"`
+	DeviceName  *string            `json:"device_name"`
+	LastSeenAt  pgtype.Timestamptz `json:"last_seen_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
 }
 
 type AgentTaskQueue struct {
@@ -46,6 +47,7 @@ type AgentTaskQueue struct {
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	StartedAt        pgtype.Timestamptz `json:"started_at"`
 	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	WorkspaceID      pgtype.UUID        `json:"workspace_id"`
 }
 
 type Comment struct {
@@ -85,12 +87,16 @@ type User struct {
 }
 
 type Workspace struct {
-	ID        pgtype.UUID        `json:"id"`
-	Name      string             `json:"name"`
-	Slug      string             `json:"slug"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Prefix    string             `json:"prefix"`
+	ID               pgtype.UUID        `json:"id"`
+	Name             string             `json:"name"`
+	Slug             string             `json:"slug"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	Prefix           string             `json:"prefix"`
+	Description      *string            `json:"description"`
+	Type             string             `json:"type"`
+	ConnectionUrl    *string            `json:"connection_url"`
+	WorkingDirectory *string            `json:"working_directory"`
 }
 
 type WorkspaceIssueSequence struct {

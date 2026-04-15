@@ -3,16 +3,36 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	db "github.com/Shubham-Rasal/open-conductor/server/pkg/db/generated"
 )
 
+var nonAlpha = regexp.MustCompile(`[^a-zA-Z]`)
+var workspaceSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// generateIssuePrefix produces a 2–3 char uppercase prefix from a workspace name.
+func generateIssuePrefix(name string) string {
+	letters := nonAlpha.ReplaceAllString(name, "")
+	if len(letters) == 0 {
+		return "WS"
+	}
+	letters = strings.ToUpper(letters)
+	if len(letters) > 3 {
+		letters = letters[:3]
+	}
+	return letters
+}
+
 func RegisterWorkspaceRoutes(r chi.Router, s *Store) {
 	r.Get("/workspaces", listWorkspaces(s))
 	r.Post("/workspaces", createWorkspace(s))
 	r.Get("/workspaces/{workspaceId}", getWorkspace(s))
+	r.Patch("/workspaces/{workspaceId}", patchWorkspace(s))
+	r.Delete("/workspaces/{workspaceId}", deleteWorkspace(s))
 }
 
 func listWorkspaces(s *Store) http.HandlerFunc {
@@ -27,9 +47,13 @@ func listWorkspaces(s *Store) http.HandlerFunc {
 }
 
 type createWorkspaceRequest struct {
-	Name   string `json:"name"`
-	Slug   string `json:"slug"`
-	Prefix string `json:"prefix"`
+	Name               string  `json:"name"`
+	Slug               string  `json:"slug"`
+	Prefix             string  `json:"prefix"`
+	Description        *string `json:"description"`
+	Type               string  `json:"type"`
+	ConnectionURL      *string `json:"connection_url"`
+	WorkingDirectory   *string `json:"working_directory"`
 }
 
 func createWorkspace(s *Store) http.HandlerFunc {
@@ -42,17 +66,36 @@ func createWorkspace(s *Store) http.HandlerFunc {
 
 		prefix := req.Prefix
 		if prefix == "" {
-			prefix = "OC"
+			prefix = generateIssuePrefix(req.Name)
 		}
-		slug := req.Slug
+		slug := strings.ToLower(strings.TrimSpace(req.Slug))
 		if slug == "" {
-			slug = req.Name
+			slug = strings.ToLower(strings.TrimSpace(req.Name))
+		}
+		slug = regexp.MustCompile(`[^a-z0-9]+`).ReplaceAllString(slug, "-")
+		slug = strings.Trim(slug, "-")
+		if slug == "" || !workspaceSlugPattern.MatchString(slug) {
+			http.Error(w, "invalid slug: use lowercase letters, numbers, and hyphens", http.StatusBadRequest)
+			return
+		}
+
+		wsType := strings.TrimSpace(req.Type)
+		if wsType == "" {
+			wsType = "local"
+		}
+		if wsType != "local" && wsType != "remote" {
+			http.Error(w, "type must be local or remote", http.StatusBadRequest)
+			return
 		}
 
 		ws, err := s.Q.CreateWorkspace(r.Context(), db.CreateWorkspaceParams{
-			Name:   req.Name,
-			Slug:   slug,
-			Prefix: prefix,
+			Name:               req.Name,
+			Slug:               slug,
+			Prefix:             prefix,
+			Description:        req.Description,
+			Type:               wsType,
+			ConnectionUrl:      req.ConnectionURL,
+			WorkingDirectory:   req.WorkingDirectory,
 		})
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -80,5 +123,79 @@ func getWorkspace(s *Store) http.HandlerFunc {
 		}
 
 		writeJSON(w, ws)
+	}
+}
+
+type patchWorkspaceRequest struct {
+	Name               *string `json:"name"`
+	Description        *string `json:"description"`
+	Prefix             *string `json:"prefix"`
+	Type               *string `json:"type"`
+	ConnectionURL      *string `json:"connection_url"`
+	WorkingDirectory   *string `json:"working_directory"`
+}
+
+func patchWorkspace(s *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := parseUUID(chi.URLParam(r, "workspaceId"))
+		if !id.Valid {
+			http.Error(w, "invalid workspace id", http.StatusBadRequest)
+			return
+		}
+
+		var req patchWorkspaceRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Type != nil {
+			t := strings.TrimSpace(*req.Type)
+			if t != "" && t != "local" && t != "remote" {
+				http.Error(w, "type must be local or remote", http.StatusBadRequest)
+				return
+			}
+		}
+
+		ws, err := s.Q.UpdateWorkspace(r.Context(), db.UpdateWorkspaceParams{
+			ID:                 id,
+			Name:               req.Name,
+			Description:        req.Description,
+			Prefix:             req.Prefix,
+			Type:               req.Type,
+			ConnectionUrl:      req.ConnectionURL,
+			WorkingDirectory:   req.WorkingDirectory,
+		})
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, ws)
+	}
+}
+
+func deleteWorkspace(s *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := parseUUID(chi.URLParam(r, "workspaceId"))
+		if !id.Valid {
+			http.Error(w, "invalid workspace id", http.StatusBadRequest)
+			return
+		}
+
+		list, err := s.Q.ListWorkspaces(r.Context())
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if len(list) <= 1 {
+			http.Error(w, "cannot delete the last workspace", http.StatusBadRequest)
+			return
+		}
+
+		if err := s.Q.DeleteWorkspace(r.Context(), id); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	}
 }
