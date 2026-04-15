@@ -5,7 +5,6 @@ import remarkGfm from "remark-gfm";
 import {
   workspaceMessagesOptions,
   usePostWorkspaceMessage,
-  useWorkspacePlan,
 } from "@open-conductor/core/chat";
 import { useCreateIssue } from "@open-conductor/core/issues";
 import { useCoreContext } from "@open-conductor/core/platform";
@@ -242,11 +241,108 @@ function ToolCallBlock({
   );
 }
 
+// ── Tool calls group ──────────────────────────────────────────────────────────
+
+function ToolCallsGroup({ messages }: { messages: ConvMessage[] }) {
+  const [open, setOpen] = useState(false);
+  const anyPending = messages.some((m) => !m.toolOutput);
+  const count = messages.length;
+
+  return (
+    <div className="my-1 max-w-[85%] overflow-hidden rounded-lg border border-border/40 bg-muted/20 text-xs">
+      {/* Header row — always visible */}
+      <button
+        type="button"
+        onClick={() => setOpen((s) => !s)}
+        className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/30 transition-colors"
+      >
+        {anyPending ? (
+          <svg className="h-3 w-3 flex-shrink-0 animate-spin text-muted-foreground/70" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3 flex-shrink-0 text-success/80">
+            <circle cx="6" cy="6" r="5.25" stroke="currentColor" strokeWidth="1.25" />
+            <path d="M3.5 6l1.75 1.75 3.25-3.25" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+
+        <span className="text-[11px] font-medium text-muted-foreground/70">
+          {anyPending ? "Running" : "Used"} {count} tool{count !== 1 ? "s" : ""}
+        </span>
+
+        {/* Tool name pills */}
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+          {messages.slice(0, 4).map((m) => (
+            <span
+              key={m.id}
+              className="flex-shrink-0 rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/60"
+            >
+              {m.tool ?? "tool"}
+            </span>
+          ))}
+          {messages.length > 4 && (
+            <span className="text-[10px] text-muted-foreground/40">+{messages.length - 4}</span>
+          )}
+        </div>
+
+        <ChevronDownIcon
+          className={`ml-auto h-3 w-3 flex-shrink-0 text-muted-foreground/40 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {/* Expanded detail */}
+      {open && (
+        <div className="border-t border-border/30 px-3 pb-3 pt-2 space-y-1.5">
+          {messages.map((m) => (
+            <ToolCallBlock
+              key={m.id}
+              tool={m.tool ?? "tool"}
+              input={m.toolInput}
+              output={m.toolOutput}
+              pending={!m.toolOutput}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Message grouper ───────────────────────────────────────────────────────────
+
+type MsgSegment =
+  | { type: "single"; msg: ConvMessage }
+  | { type: "tool_group"; msgs: ConvMessage[] };
+
+function groupMessages(messages: ConvMessage[]): MsgSegment[] {
+  const segments: MsgSegment[] = [];
+  let toolBuf: ConvMessage[] = [];
+
+  function flushTools() {
+    if (toolBuf.length === 0) return;
+    segments.push({ type: "tool_group", msgs: [...toolBuf] });
+    toolBuf = [];
+  }
+
+  for (const m of messages) {
+    if (m.role === "tool_use") {
+      toolBuf.push(m);
+    } else {
+      flushTools();
+      segments.push({ type: "single", msg: m });
+    }
+  }
+  flushTools();
+  return segments;
+}
+
 // ── Conversation types & storage ──────────────────────────────────────────────
 
 interface ConvMessage {
   id: string;
-  role: "user" | "assistant" | "tool_use" | "tool_result" | "thinking";
+  role: "user" | "assistant" | "tool_use" | "tool_result" | "thinking" | "plan_proposal";
   content: string;
   createdAt: string;
   // tool call fields
@@ -254,6 +350,8 @@ interface ConvMessage {
   callId?: string;
   toolInput?: string;
   toolOutput?: string;
+  // plan proposal fields
+  planItems?: ProposedPlanIssue[];
 }
 
 interface Conversation {
@@ -619,6 +717,125 @@ function HistoryPanel({
   );
 }
 
+// ── Proposed issues card (inline in chat) ─────────────────────────────────────
+
+function ProposedIssuesCard({
+  items,
+  onAdd,
+}: {
+  items: ProposedPlanIssue[];
+  onAdd: (item: ProposedPlanIssue) => Promise<void>;
+}) {
+  const [itemState, setItemState] = useState<Record<string, "loading" | "done">>({});
+
+  async function handleAdd(item: ProposedPlanIssue, key: string) {
+    setItemState((s) => ({ ...s, [key]: "loading" }));
+    try {
+      await onAdd(item);
+      setItemState((s) => ({ ...s, [key]: "done" }));
+    } catch {
+      setItemState((s) => { const n = { ...s }; delete n[key]; return n; });
+    }
+  }
+
+  async function handleAddAll() {
+    await Promise.all(
+      items.map((it, i) => {
+        const key = `${it.title}-${i}`;
+        if (!itemState[key]) return handleAdd(it, key);
+        return Promise.resolve();
+      })
+    );
+  }
+
+  const addedCount = Object.values(itemState).filter((s) => s === "done").length;
+  const allAdded = addedCount === items.length;
+
+  return (
+    <div className="my-1 w-full max-w-xl rounded-xl border border-border/60 bg-card/60 shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <svg className="h-3.5 w-3.5 text-brand" viewBox="0 0 16 16" fill="none">
+            <path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M3.5 12.5L5 11M11 5l1.5-1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4" />
+          </svg>
+          <span className="text-xs font-semibold text-foreground">Proposed issues</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-muted-foreground/60">
+            {addedCount}/{items.length} added
+          </span>
+          {!allAdded && (
+            <button
+              type="button"
+              onClick={() => void handleAddAll()}
+              className="rounded-md border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              Add all
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Issue list */}
+      <ul className="divide-y divide-border/30">
+        {items.map((it, i) => {
+          const key = `${it.title}-${i}`;
+          const state = itemState[key];
+          return (
+            <li key={key} className={`flex items-start gap-3 px-4 py-3 transition-colors ${state === "done" ? "opacity-50" : ""}`}>
+              {/* Status dot / check */}
+              <span className="mt-[3px] flex h-4 w-4 flex-shrink-0 items-center justify-center">
+                {state === "done" ? (
+                  <svg viewBox="0 0 12 12" fill="none" className="h-3.5 w-3.5 text-success">
+                    <circle cx="6" cy="6" r="5.25" stroke="currentColor" strokeWidth="1.25" />
+                    <path d="M3.5 6l1.75 1.75 3.25-3.25" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : (
+                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
+                )}
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <p className={`text-xs font-medium ${state === "done" ? "text-muted-foreground line-through" : "text-foreground"}`}>
+                  {it.title}
+                </p>
+                {it.description && (
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground/70">{it.description}</p>
+                )}
+                <p className="mt-1 text-[10px] text-muted-foreground/50">
+                  {it.priority} · {it.suggested_assignee}
+                </p>
+              </div>
+
+              {/* Action */}
+              {state === "loading" ? (
+                <svg className="mt-0.5 h-4 w-4 flex-shrink-0 animate-spin text-muted-foreground" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : state === "done" ? (
+                <span className="flex-shrink-0 rounded-md bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success">
+                  Added
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleAdd(it, key)}
+                  className="flex-shrink-0 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+                >
+                  Add
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 // ── Composer image type ───────────────────────────────────────────────────────
 
 interface AttachedImage {
@@ -643,7 +860,6 @@ export function WorkspaceChatView() {
 
   const { data: agents = [] } = useQuery(agentListOptions(apiClient, workspaceId));
   const postMsg = usePostWorkspaceMessage();
-  const plan = useWorkspacePlan();
   const createIssue = useCreateIssue();
 
   const conv = useConversations(workspaceId);
@@ -661,8 +877,8 @@ export function WorkspaceChatView() {
   const [streamingConvIds, setStreamingConvIds] = useState<Set<string>>(new Set());
   // convId → agent replied but tab not yet visited
   const [unreadConvIds, setUnreadConvIds] = useState<Set<string>>(new Set());
-  const [planItems, setPlanItems] = useState<ProposedPlanIssue[] | null>(null);
-  const [planItemState, setPlanItemState] = useState<Record<string, "loading" | "done">>({});
+  // per-tab pending state — replaces global mutation isPending
+  const [pendingConvIds, setPendingConvIds] = useState<Set<string>>(new Set());
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [showAgentPicker, setShowAgentPicker] = useState(false);
@@ -700,13 +916,14 @@ export function WorkspaceChatView() {
     const off = wsClient.on("chat:stream", (e) => {
       const p = e.payload as {
         stream_id?: string;
-        kind?: "text" | "tool_use" | "tool_result" | "thinking";
+        kind?: "text" | "tool_use" | "tool_result" | "thinking" | "plan_proposal";
         delta?: string;
         done?: boolean;
         tool?: string;
         call_id?: string;
         input?: string;
         output?: string;
+        issues?: ProposedPlanIssue[];
       };
       if (!p.stream_id) return;
       const sid = p.stream_id;
@@ -725,6 +942,17 @@ export function WorkspaceChatView() {
           }
         }
         setStreamingIds((prev) => { const next = new Set(prev); next.delete(sid); return next; });
+        return;
+      }
+
+      if (kind === "plan_proposal" && p.issues?.length && convId) {
+        c.addMessage(convId, {
+          id: `plan_${Date.now()}`,
+          role: "plan_proposal",
+          content: "",
+          createdAt: new Date().toISOString(),
+          planItems: p.issues,
+        });
         return;
       }
 
@@ -804,7 +1032,7 @@ export function WorkspaceChatView() {
   }, [mode, agents]);
 
   const selectedAgent = (agents as Agent[]).find((a) => a.id === selectedAgentId) ?? null;
-  const isPending = postMsg.isPending || plan.isPending;
+  const isPending = pendingConvIds.has(conv.activeId);
   const canSend = (input.trim().length > 0 || attachedImages.length > 0) && !isPending;
 
   // Image helpers
@@ -845,6 +1073,7 @@ export function WorkspaceChatView() {
     const convId = conv.activeId;
     setInput("");
     setAttachedImages([]);
+    setPendingConvIds((prev) => new Set(prev).add(convId));
 
     conv.addMessage(convId, {
       id: `user_${Date.now()}`,
@@ -853,40 +1082,45 @@ export function WorkspaceChatView() {
       createdAt: new Date().toISOString(),
     });
 
-    if (mode === "plan") {
-      const res = await plan.mutateAsync({ goal: t });
-      setPlanItems(res.issues ?? []);
-      return;
-    }
+    try {
+      // Collect prior turns so the agent has full conversation context.
+      // Exclude tool/plan/thinking messages — only user↔assistant text matters.
+      const history = (conv.activeConversation?.messages ?? [])
+        .filter(
+          (m): m is ConvMessage & { role: "user" | "assistant" } =>
+            (m.role === "user" || m.role === "assistant") && m.content.trim().length > 0
+        )
+        .slice(-24) // cap at 24 turns (~12 exchanges) to stay within context limits
+        .map((m) => ({ role: m.role, content: m.content }));
 
-    // Execute mode — send to agent / assistant
-    const result = await postMsg.mutateAsync({ content: t, respond_with_assistant: true });
-    if (result.stream_id) {
-      streamConvMapRef.current[result.stream_id] = convId;
+      const result = await postMsg.mutateAsync({
+        content: t,
+        respond_with_assistant: true,
+        history: history.length > 0 ? history : undefined,
+      });
+      if (result.stream_id) {
+        streamConvMapRef.current[result.stream_id] = convId;
+      }
+    } finally {
+      setPendingConvIds((prev) => { const n = new Set(prev); n.delete(convId); return n; });
     }
   }
 
-  async function acceptProposal(it: ProposedPlanIssue, key: string) {
-    setPlanItemState((s) => ({ ...s, [key]: "loading" }));
-    try {
-      await createIssue.mutateAsync({
-        workspaceId,
-        title: it.title,
-        description: it.description ?? undefined,
-        priority: it.priority || "no_priority",
-        status: "backlog",
-        assignee_type: it.suggested_assignee === "agent" ? "agent" : "member",
-      });
-      setPlanItemState((s) => ({ ...s, [key]: "done" }));
-    } catch {
-      setPlanItemState((s) => { const n = { ...s }; delete n[key]; return n; });
-    }
+  async function handleAddIssue(item: ProposedPlanIssue) {
+    await createIssue.mutateAsync({
+      workspaceId,
+      title: item.title,
+      description: item.description ?? undefined,
+      priority: item.priority || "no_priority",
+      status: "backlog",
+      assignee_type: item.suggested_assignee === "agent" ? "agent" : "member",
+    });
   }
 
   const displayMessages = conv.activeConversation?.messages ?? [];
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-canvas/55 backdrop-blur-[2px]">
+    <div className="relative flex h-full min-h-0 flex-col bg-canvas/85 backdrop-blur-[2px]">
 
       {/* ── Tab bar ─────────────────────────────────────────────────────────── */}
       <TabBar
@@ -916,22 +1150,13 @@ export function WorkspaceChatView() {
             </div>
           )}
 
-          {displayMessages.map((m) => {
-            const isStreaming = m.id.startsWith("stream_") && streamingIds.has(m.id.replace("stream_", ""));
-
-            // Tool call block
-            if (m.role === "tool_use") {
-              return (
-                <div key={m.id} className="max-w-[85%]">
-                  <ToolCallBlock
-                    tool={m.tool ?? "tool"}
-                    input={m.toolInput}
-                    output={m.toolOutput}
-                    pending={!m.toolOutput}
-                  />
-                </div>
-              );
+          {groupMessages(displayMessages).map((seg, segIdx) => {
+            if (seg.type === "tool_group") {
+              return <ToolCallsGroup key={`tg_${segIdx}`} messages={seg.msgs} />;
             }
+
+            const m = seg.msg;
+            const isStreaming = m.id.startsWith("stream_") && streamingIds.has(m.id.replace("stream_", ""));
 
             // Thinking block (collapsible, subtle)
             if (m.role === "thinking") {
@@ -945,6 +1170,15 @@ export function WorkspaceChatView() {
                   </summary>
                   <p className="mt-1 whitespace-pre-wrap pl-4 font-mono text-[11px] text-muted-foreground/50">{m.content}</p>
                 </details>
+              );
+            }
+
+            // Inline plan proposal card
+            if (m.role === "plan_proposal" && m.planItems) {
+              return (
+                <div key={m.id} className="flex justify-start">
+                  <ProposedIssuesCard items={m.planItems} onAdd={handleAddIssue} />
+                </div>
               );
             }
 
@@ -967,102 +1201,6 @@ export function WorkspaceChatView() {
           <div ref={bottomRef} />
         </div>
       </div>
-
-      {/* ── Proposed issues ──────────────────────────────────────────────────── */}
-      {planItems && planItems.length > 0 && (
-        <div className="flex-shrink-0 border-t border-border/70 bg-background/50 px-6 py-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-medium text-foreground">Proposed issues</p>
-            <span className="text-[10px] text-muted-foreground">
-              {Object.values(planItemState).filter((s) => s === "done").length}/{planItems.length} added
-            </span>
-          </div>
-          <ul className="max-h-52 space-y-2 overflow-y-auto">
-            {planItems.map((it, i) => {
-              const key = `${it.title}-${i}`;
-              const state = planItemState[key];
-              return (
-                <li
-                  key={key}
-                  className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                    state === "done"
-                      ? "border-success/30 bg-success/5"
-                      : "border-border/60 bg-card/80"
-                  }`}
-                >
-                  <div className="flex min-w-0 items-start gap-2.5">
-                    {/* Status icon */}
-                    <span className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center">
-                      {state === "done" ? (
-                        <svg viewBox="0 0 12 12" fill="none" className="h-3.5 w-3.5 text-success">
-                          <circle cx="6" cy="6" r="5.25" stroke="currentColor" strokeWidth="1.25" />
-                          <path d="M3.5 6l1.75 1.75 3.25-3.25" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      ) : (
-                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
-                      )}
-                    </span>
-                    <div className="min-w-0">
-                      <p className={`font-medium ${state === "done" ? "text-muted-foreground line-through" : "text-foreground"}`}>
-                        {it.title}
-                      </p>
-                      {it.description && (
-                        <p className="mt-0.5 text-xs text-muted-foreground">{it.description}</p>
-                      )}
-                      <p className="mt-1 text-[10px] text-muted-foreground/60">
-                        {it.priority} · {it.suggested_assignee}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Action button */}
-                  {state === "loading" ? (
-                    <svg className="mt-0.5 h-4 w-4 flex-shrink-0 animate-spin text-muted-foreground" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                  ) : state === "done" ? (
-                    <span className="flex-shrink-0 rounded-md bg-success/10 px-2 py-1 text-[11px] font-medium text-success">
-                      Added
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="flex-shrink-0 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:opacity-90 transition-opacity"
-                      onClick={() => void acceptProposal(it, key)}
-                    >
-                      Add
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          <div className="mt-2.5 flex items-center justify-between">
-            <button
-              type="button"
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => { setPlanItems(null); setPlanItemState({}); }}
-            >
-              Dismiss
-            </button>
-            {planItems.some((_, i) => !planItemState[`${_.title}-${i}`]) && (
-              <button
-                type="button"
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => {
-                  planItems.forEach((it, i) => {
-                    const key = `${it.title}-${i}`;
-                    if (!planItemState[key]) void acceptProposal(it, key);
-                  });
-                }}
-              >
-                Add all
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* ── Composer ─────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 px-4 pb-4 pt-2">
