@@ -29,6 +29,7 @@ import (
 type toolSession struct {
 	workspaceID pgtype.UUID
 	store       *Store
+	streamID    string // routes plan_proposal events back to the originating chat tab
 }
 
 var (
@@ -36,9 +37,9 @@ var (
 	toolSessions   = map[string]toolSession{}
 )
 
-func registerToolSession(token string, wsID pgtype.UUID, s *Store) {
+func registerToolSession(token string, wsID pgtype.UUID, s *Store, streamID string) {
 	toolSessionsMu.Lock()
-	toolSessions[token] = toolSession{workspaceID: wsID, store: s}
+	toolSessions[token] = toolSession{workspaceID: wsID, store: s, streamID: streamID}
 	toolSessionsMu.Unlock()
 }
 
@@ -73,6 +74,7 @@ func RegisterToolRoutes(r chi.Router) {
 		r.Post("/issues", toolCreateIssue)
 		r.Patch("/issues/{issueId}/assign", toolAssignIssue)
 		r.Get("/agents", toolListAgents)
+		r.Post("/propose_issues", toolProposeIssues)
 	})
 }
 
@@ -112,9 +114,15 @@ func listWorkspaceMessages(s *Store) http.HandlerFunc {
 
 // ── Post message ──────────────────────────────────────────────────────────────
 
+type historyMsg struct {
+	Role    string `json:"role"`    // "user" | "assistant"
+	Content string `json:"content"`
+}
+
 type postMessageRequest struct {
-	Content              string `json:"content"`
-	RespondWithAssistant *bool  `json:"respond_with_assistant"`
+	Content              string       `json:"content"`
+	RespondWithAssistant *bool        `json:"respond_with_assistant"`
+	History              []historyMsg `json:"history,omitempty"`
 }
 
 func postWorkspaceMessage(s *Store) http.HandlerFunc {
@@ -170,7 +178,7 @@ func postWorkspaceMessage(s *Store) http.HandlerFunc {
 		b := make([]byte, 16)
 		_, _ = rand.Read(b)
 		streamID := hex.EncodeToString(b)
-		go runWorkspaceAssistant(context.Background(), s, ws, userMsg, streamID)
+		go runWorkspaceAssistant(context.Background(), s, ws, userMsg, streamID, req.History)
 
 		writeJSON(w, map[string]any{
 			"message":   workspaceMessageJSON(userMsg),
@@ -201,7 +209,7 @@ func workspaceMessageJSON(m db.WorkspaceMessage) map[string]any {
 
 // ── Agentic assistant runner ───────────────────────────────────────────────────
 
-func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userMsg db.WorkspaceMessage, streamID string) {
+func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userMsg db.WorkspaceMessage, streamID string, history []historyMsg) {
 	tool, path := pickChatAgent(ctx)
 	if path == "" {
 		slog.Warn("workspace chat: no agent CLI found")
@@ -273,7 +281,7 @@ func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userM
 	tb := make([]byte, 16)
 	_, _ = rand.Read(tb)
 	toolToken := hex.EncodeToString(tb)
-	registerToolSession(toolToken, ws.ID, s)
+	registerToolSession(toolToken, ws.ID, s, streamID)
 	defer unregisterToolSession(toolToken)
 
 	port := os.Getenv("PORT")
@@ -282,38 +290,47 @@ func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userM
 	}
 	baseURL := fmt.Sprintf("http://localhost:%s/tool/%s", port, toolToken)
 
-	systemPrompt := fmt.Sprintf(`You are an agentic planning assistant for the software workspace %q.
+	systemPrompt := fmt.Sprintf(`You are a conversational planning assistant for the software workspace %q.
+
+## Behaviour rules
+1. ALWAYS reply with natural language first — explain your thinking, analysis, or suggestions clearly.
+2. Keep replies concise and readable (markdown lists/headers are fine).
+3. Do NOT silently run tools without explaining what you are doing in plain text.
+4. When you have developed a sufficiently concrete plan (after back-and-forth discussion), call propose_issues to surface the issues for the user to review and add. Do this on your own judgment — you do not need to wait for an explicit "generate issues" command.
+5. Only create issues directly (POST /issues) if the user explicitly asks you to create them right now.
 
 ## Current backlog
 %s
 ## Connected agents
 %s
-## Workspace tools
-You have access to these HTTP tools (use curl). All calls are pre-authenticated.
+## Available workspace tools (use curl, all pre-authenticated)
 
 List issues:
   curl -s '%s/issues'
 
-Create an issue:
+Propose a set of issues for user review (call this when you have a concrete plan):
+  curl -s -X POST '%s/propose_issues' \
+    -H 'Content-Type: application/json' \
+    -d '[{"title":"…","description":"…","priority":"medium","suggested_assignee":"agent"},…]'
+  (priority: no_priority | low | medium | high | urgent)
+  (suggested_assignee: agent | member)
+
+Create an issue directly (only when user explicitly asks):
   curl -s -X POST '%s/issues' \
     -H 'Content-Type: application/json' \
     -d '{"title":"…","description":"…","priority":"medium","status":"backlog","assignee_type":"agent"}'
-  (priority: no_priority | low | medium | high | urgent)
-  (assignee_type: agent | member)
 
 Assign an issue to an agent:
   curl -s -X PATCH '%s/issues/{issue_id}/assign' \
     -H 'Content-Type: application/json' \
     -d '{"agent_id":"…"}'
 
-List agents (to get agent IDs for assignment):
-  curl -s '%s/agents'
-
-Be proactive: check the current backlog, create issues, and assign them to agents as appropriate.`,
+List agents (to get IDs for assignment):
+  curl -s '%s/agents'`,
 		ws.Name,
 		issuesCtx.String(),
 		agentsCtx.String(),
-		baseURL, baseURL, baseURL, baseURL,
+		baseURL, baseURL, baseURL, baseURL, baseURL, baseURL,
 	)
 
 	execCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
@@ -325,7 +342,24 @@ Be proactive: check the current backlog, create issues, and assign them to agent
 		Timeout:      10 * time.Minute,
 		MaxTurns:     20,
 	}
-	session, err := backend.Execute(execCtx, userMsg.Content, opts)
+	// Build prompt — prepend conversation history so the agent has full context
+	// when continuing an existing chat thread.
+	var promptBuilder strings.Builder
+	if len(history) > 0 {
+		promptBuilder.WriteString("<conversation_history>\n")
+		for _, h := range history {
+			role := "User"
+			if h.Role == "assistant" {
+				role = "Assistant"
+			}
+			promptBuilder.WriteString(role + ": " + strings.TrimSpace(h.Content) + "\n\n")
+		}
+		promptBuilder.WriteString("</conversation_history>\n\nContinuing the conversation above.\n\n")
+	}
+	promptBuilder.WriteString(userMsg.Content)
+	fullPrompt := promptBuilder.String()
+
+	session, err := backend.Execute(execCtx, fullPrompt, opts)
 	if err != nil {
 		broadcastEvent("chat:stream", map[string]any{
 			"workspace_id": formatUUID(ws.ID),
@@ -387,7 +421,18 @@ Be proactive: check the current backlog, create issues, and assign them to agent
 		text = res.Output
 	}
 	if res.Error != "" && text == "" {
-		text = res.Error
+		text = "[Agent error] " + res.Error
+	}
+
+	// If the agent emitted its full text only in res.Output (not via streaming
+	// MessageText events), broadcast it now so the frontend can display it.
+	if text != "" && full.Len() == 0 {
+		broadcastEvent("chat:stream", map[string]any{
+			"workspace_id": formatUUID(ws.ID),
+			"stream_id":    streamID,
+			"kind":         "text",
+			"delta":        text,
+		})
 	}
 
 	meta, _ := json.Marshal(map[string]any{"provider": tool.Provider, "status": res.Status})
@@ -706,6 +751,32 @@ func toolAssignIssue(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+func toolProposeIssues(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	sess, ok := lookupToolSession(token)
+	if !ok {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	var issues []proposedIssue
+	if err := json.NewDecoder(r.Body).Decode(&issues); err != nil || len(issues) == 0 {
+		http.Error(w, "expected non-empty JSON array of issues", http.StatusBadRequest)
+		return
+	}
+
+	// Broadcast a plan_proposal stream event so the frontend can render the
+	// interactive issues card inline in the chat conversation.
+	broadcastEvent("chat:stream", map[string]any{
+		"workspace_id": formatUUID(sess.workspaceID),
+		"stream_id":    sess.streamID,
+		"kind":         "plan_proposal",
+		"issues":       issues,
+	})
+
+	writeJSON(w, map[string]any{"ok": true, "count": len(issues)})
 }
 
 func toolListAgents(w http.ResponseWriter, r *http.Request) {

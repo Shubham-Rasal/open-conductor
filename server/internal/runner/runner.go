@@ -136,6 +136,10 @@ func (r *Runner) loop(ctx context.Context) {
 }
 
 func (r *Runner) workerLoop(ctx context.Context) {
+	const idleLogInterval = 30 * time.Second
+	idleSince := time.Now()
+	lastIdleLog := time.Time{}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -148,6 +152,15 @@ func (r *Runner) workerLoop(ctx context.Context) {
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
+				// Periodic idle heartbeat so operators know the runner is alive but has nothing to do.
+				if time.Since(lastIdleLog) >= idleLogInterval {
+					slog.Info("runner idle: no claimable tasks",
+						"agent_id", uuidStr(r.agentID),
+						"workspace_id", uuidStr(r.workspaceID),
+						"idle_for", time.Since(idleSince).Round(time.Second).String(),
+					)
+					lastIdleLog = time.Now()
+				}
 				select {
 				case <-ctx.Done():
 					return
@@ -155,7 +168,11 @@ func (r *Runner) workerLoop(ctx context.Context) {
 				}
 				continue
 			}
-			slog.Warn("claim task", "err", err)
+			slog.Warn("runner: claim task failed",
+				"agent_id", uuidStr(r.agentID),
+				"workspace_id", uuidStr(r.workspaceID),
+				"err", err,
+			)
 			select {
 			case <-ctx.Done():
 				return
@@ -163,6 +180,10 @@ func (r *Runner) workerLoop(ctx context.Context) {
 			}
 			continue
 		}
+
+		// Reset idle tracking when we pick up work.
+		idleSince = time.Now()
+		lastIdleLog = time.Time{}
 		r.executeTask(ctx, task)
 	}
 }
