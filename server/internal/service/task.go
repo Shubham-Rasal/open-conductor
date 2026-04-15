@@ -22,12 +22,12 @@ func NewTaskService(q *db.Queries, broadcast func([]byte)) *TaskService {
 
 // EnqueueTaskForIssue creates a queued task for the agent assigned to the issue.
 func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue) error {
-	if !issue.AssigneeID.Valid || issue.AssigneeType == nil || *issue.AssigneeType != "agent" {
+	if !issue.AgentAssigneeID.Valid || issue.AssigneeType == nil || *issue.AssigneeType != "agent" {
 		return nil
 	}
 
 	_, err := s.q.EnqueueTask(ctx, db.EnqueueTaskParams{
-		AgentID:          issue.AssigneeID,
+		AgentID:          issue.AgentAssigneeID,
 		IssueID:          issue.ID,
 		Priority:         0,
 		TriggerCommentID: pgtype.UUID{Valid: false},
@@ -37,7 +37,7 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue) e
 		return fmt.Errorf("enqueue task: %w", err)
 	}
 
-	slog.Info("task enqueued", "issue_id", issue.ID, "agent_id", issue.AssigneeID)
+	slog.Info("task enqueued", "issue_id", issue.ID, "agent_id", issue.AgentAssigneeID)
 	return nil
 }
 
@@ -51,7 +51,7 @@ func (s *TaskService) CancelTasksForIssue(ctx context.Context, issueID pgtype.UU
 
 // ShouldEnqueueAgentTask returns true if the issue should trigger an agent task.
 func (s *TaskService) ShouldEnqueueAgentTask(issue db.Issue) bool {
-	return issue.AssigneeID.Valid &&
+	return issue.AgentAssigneeID.Valid &&
 		issue.AssigneeType != nil &&
 		*issue.AssigneeType == "agent"
 }

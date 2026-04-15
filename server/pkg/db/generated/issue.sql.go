@@ -14,25 +14,26 @@ import (
 const createIssue = `-- name: CreateIssue :one
 INSERT INTO issues (
     workspace_id, number, title, description,
-    status, priority, assignee_type, assignee_id,
+    status, priority, assignee_type, agent_assignee_id, user_assignee_id,
     created_by_id, position
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     COALESCE((SELECT MAX(position) FROM issues WHERE workspace_id = $1), 0) + 1
 )
-RETURNING id, workspace_id, title, description, status, priority, assignee_id, created_by_id, created_at, updated_at, number, assignee_type, position
+RETURNING id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id
 `
 
 type CreateIssueParams struct {
-	WorkspaceID  pgtype.UUID `json:"workspace_id"`
-	Number       *int32      `json:"number"`
-	Title        string      `json:"title"`
-	Description  *string     `json:"description"`
-	Status       string      `json:"status"`
-	Priority     string      `json:"priority"`
-	AssigneeType *string     `json:"assignee_type"`
-	AssigneeID   pgtype.UUID `json:"assignee_id"`
-	CreatedByID  pgtype.UUID `json:"created_by_id"`
+	WorkspaceID     pgtype.UUID `json:"workspace_id"`
+	Number          *int32      `json:"number"`
+	Title           string      `json:"title"`
+	Description     *string     `json:"description"`
+	Status          string      `json:"status"`
+	Priority        string      `json:"priority"`
+	AssigneeType    *string     `json:"assignee_type"`
+	AgentAssigneeID pgtype.UUID `json:"agent_assignee_id"`
+	UserAssigneeID  pgtype.UUID `json:"user_assignee_id"`
+	CreatedByID     pgtype.UUID `json:"created_by_id"`
 }
 
 func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error) {
@@ -44,7 +45,8 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		arg.Status,
 		arg.Priority,
 		arg.AssigneeType,
-		arg.AssigneeID,
+		arg.AgentAssigneeID,
+		arg.UserAssigneeID,
 		arg.CreatedByID,
 	)
 	var i Issue
@@ -55,13 +57,14 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.Description,
 		&i.Status,
 		&i.Priority,
-		&i.AssigneeID,
 		&i.CreatedByID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Number,
 		&i.AssigneeType,
 		&i.Position,
+		&i.AgentAssigneeID,
+		&i.UserAssigneeID,
 	)
 	return i, err
 }
@@ -76,7 +79,7 @@ func (q *Queries) DeleteIssue(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getIssue = `-- name: GetIssue :one
-SELECT id, workspace_id, title, description, status, priority, assignee_id, created_by_id, created_at, updated_at, number, assignee_type, position FROM issues WHERE id = $1
+SELECT id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id FROM issues WHERE id = $1
 `
 
 func (q *Queries) GetIssue(ctx context.Context, id pgtype.UUID) (Issue, error) {
@@ -89,19 +92,20 @@ func (q *Queries) GetIssue(ctx context.Context, id pgtype.UUID) (Issue, error) {
 		&i.Description,
 		&i.Status,
 		&i.Priority,
-		&i.AssigneeID,
 		&i.CreatedByID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Number,
 		&i.AssigneeType,
 		&i.Position,
+		&i.AgentAssigneeID,
+		&i.UserAssigneeID,
 	)
 	return i, err
 }
 
 const listIssues = `-- name: ListIssues :many
-SELECT id, workspace_id, title, description, status, priority, assignee_id, created_by_id, created_at, updated_at, number, assignee_type, position FROM issues
+SELECT id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id FROM issues
 WHERE workspace_id = $1
 ORDER BY position ASC, created_at DESC
 `
@@ -122,13 +126,14 @@ func (q *Queries) ListIssues(ctx context.Context, workspaceID pgtype.UUID) ([]Is
 			&i.Description,
 			&i.Status,
 			&i.Priority,
-			&i.AssigneeID,
 			&i.CreatedByID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Number,
 			&i.AssigneeType,
 			&i.Position,
+			&i.AgentAssigneeID,
+			&i.UserAssigneeID,
 		); err != nil {
 			return nil, err
 		}
@@ -141,7 +146,7 @@ func (q *Queries) ListIssues(ctx context.Context, workspaceID pgtype.UUID) ([]Is
 }
 
 const listIssuesByStatus = `-- name: ListIssuesByStatus :many
-SELECT id, workspace_id, title, description, status, priority, assignee_id, created_by_id, created_at, updated_at, number, assignee_type, position FROM issues
+SELECT id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id FROM issues
 WHERE workspace_id = $1 AND status = $2
 ORDER BY position ASC, created_at DESC
 `
@@ -167,13 +172,14 @@ func (q *Queries) ListIssuesByStatus(ctx context.Context, arg ListIssuesByStatus
 			&i.Description,
 			&i.Status,
 			&i.Priority,
-			&i.AssigneeID,
 			&i.CreatedByID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Number,
 			&i.AssigneeType,
 			&i.Position,
+			&i.AgentAssigneeID,
+			&i.UserAssigneeID,
 		); err != nil {
 			return nil, err
 		}
@@ -207,22 +213,24 @@ UPDATE issues SET
     status       = COALESCE($3, status),
     priority     = COALESCE($4, priority),
     assignee_type = $5,
-    assignee_id  = $6,
-    position     = COALESCE($7, position),
+    agent_assignee_id = $6,
+    user_assignee_id = $7,
+    position     = COALESCE($8, position),
     updated_at   = NOW()
-WHERE id = $8
-RETURNING id, workspace_id, title, description, status, priority, assignee_id, created_by_id, created_at, updated_at, number, assignee_type, position
+WHERE id = $9
+RETURNING id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id
 `
 
 type UpdateIssueParams struct {
-	Title        *string     `json:"title"`
-	Description  *string     `json:"description"`
-	Status       *string     `json:"status"`
-	Priority     *string     `json:"priority"`
-	AssigneeType *string     `json:"assignee_type"`
-	AssigneeID   pgtype.UUID `json:"assignee_id"`
-	Position     *float64    `json:"position"`
-	ID           pgtype.UUID `json:"id"`
+	Title           *string     `json:"title"`
+	Description     *string     `json:"description"`
+	Status          *string     `json:"status"`
+	Priority        *string     `json:"priority"`
+	AssigneeType    *string     `json:"assignee_type"`
+	AgentAssigneeID pgtype.UUID `json:"agent_assignee_id"`
+	UserAssigneeID  pgtype.UUID `json:"user_assignee_id"`
+	Position        *float64    `json:"position"`
+	ID              pgtype.UUID `json:"id"`
 }
 
 func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue, error) {
@@ -232,7 +240,8 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		arg.Status,
 		arg.Priority,
 		arg.AssigneeType,
-		arg.AssigneeID,
+		arg.AgentAssigneeID,
+		arg.UserAssigneeID,
 		arg.Position,
 		arg.ID,
 	)
@@ -244,19 +253,20 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		&i.Description,
 		&i.Status,
 		&i.Priority,
-		&i.AssigneeID,
 		&i.CreatedByID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Number,
 		&i.AssigneeType,
 		&i.Position,
+		&i.AgentAssigneeID,
+		&i.UserAssigneeID,
 	)
 	return i, err
 }
 
 const updateIssueStatus = `-- name: UpdateIssueStatus :one
-UPDATE issues SET status = $2, updated_at = NOW() WHERE id = $1 RETURNING id, workspace_id, title, description, status, priority, assignee_id, created_by_id, created_at, updated_at, number, assignee_type, position
+UPDATE issues SET status = $2, updated_at = NOW() WHERE id = $1 RETURNING id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id
 `
 
 type UpdateIssueStatusParams struct {
@@ -274,13 +284,14 @@ func (q *Queries) UpdateIssueStatus(ctx context.Context, arg UpdateIssueStatusPa
 		&i.Description,
 		&i.Status,
 		&i.Priority,
-		&i.AssigneeID,
 		&i.CreatedByID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Number,
 		&i.AssigneeType,
 		&i.Position,
+		&i.AgentAssigneeID,
+		&i.UserAssigneeID,
 	)
 	return i, err
 }

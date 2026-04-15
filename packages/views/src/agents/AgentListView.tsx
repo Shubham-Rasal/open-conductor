@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentKeys, agentListOptions, detectAgentsOptions } from "@open-conductor/core/agents";
+import { agentKeys, agentListOptions, detectAgentsOptions, useSpawnAgent, useStopManagedAgent } from "@open-conductor/core/agents";
 import type { DetectedTool } from "@open-conductor/core/agents";
 import { useCoreContext } from "@open-conductor/core/platform";
 import { workspaceListOptions } from "@open-conductor/core/workspaces";
@@ -86,6 +86,8 @@ function AgentRow({
   onTestIntegration,
   onDisconnect,
   onReconnect,
+  onSpawn,
+  onStopSpawn,
   actionBusy,
 }: {
   agent: Agent;
@@ -94,7 +96,9 @@ function AgentRow({
   onTestIntegration: () => void;
   onDisconnect: () => void;
   onReconnect: () => void;
-  actionBusy: "disconnect" | "reconnect" | null;
+  onSpawn: () => void;
+  onStopSpawn: () => void;
+  actionBusy: "disconnect" | "reconnect" | "spawn" | "stop" | null;
 }) {
   const dot = STATUS_DOT[agent.status] ?? "bg-muted-foreground";
   const testing = integrationTest?.status === "loading";
@@ -140,6 +144,23 @@ function AgentRow({
           )}
           <button
             type="button"
+            onClick={onSpawn}
+            disabled={actionBusy !== null}
+            className="rounded-md border border-brand/40 bg-brand/10 px-2.5 py-1 text-[11px] font-medium text-brand hover:bg-brand/15 disabled:opacity-50"
+            title="Start managed runtime (same as reconnect)"
+          >
+            {actionBusy === "spawn" ? "…" : "Spawn"}
+          </button>
+          <button
+            type="button"
+            onClick={onStopSpawn}
+            disabled={actionBusy !== null}
+            className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+          >
+            {actionBusy === "stop" ? "…" : "Stop"}
+          </button>
+          <button
+            type="button"
             onClick={onTestIntegration}
             disabled={testing || actionBusy !== null}
             className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-accent disabled:opacity-50"
@@ -181,8 +202,10 @@ export function AgentListView() {
     Record<string, IntegrationTestRowState>
   >({});
   const [agentActionBusy, setAgentActionBusy] = useState<
-    Record<string, "disconnect" | "reconnect" | undefined>
+    Record<string, "disconnect" | "reconnect" | "spawn" | "stop" | undefined>
   >({});
+  const spawnAgent = useSpawnAgent();
+  const stopManaged = useStopManagedAgent();
 
   async function runIntegrationTest(agent: Agent) {
     if (!workspaceId) {
@@ -227,6 +250,26 @@ export function AgentListView() {
     }
   }
 
+  async function spawnManaged(agent: Agent) {
+    if (!workspaceId) return;
+    setAgentActionBusy((m) => ({ ...m, [agent.id]: "spawn" }));
+    try {
+      await spawnAgent.mutateAsync(agent.id);
+    } finally {
+      setAgentActionBusy((m) => ({ ...m, [agent.id]: undefined }));
+    }
+  }
+
+  async function stopSpawn(agent: Agent) {
+    if (!workspaceId) return;
+    setAgentActionBusy((m) => ({ ...m, [agent.id]: "stop" }));
+    try {
+      await stopManaged.mutateAsync(agent.id);
+    } finally {
+      setAgentActionBusy((m) => ({ ...m, [agent.id]: undefined }));
+    }
+  }
+
   const { data: agents = [], isLoading: agentsLoading } = useQuery(
     agentListOptions(apiClient, workspaceId)
   );
@@ -234,6 +277,13 @@ export function AgentListView() {
     detectAgentsOptions(apiClient, workspaceId)
   );
   const { data: workspaces = [] } = useQuery(workspaceListOptions(apiClient));
+
+  async function spawnAll() {
+    for (const a of agents) {
+      await spawnManaged(a);
+    }
+  }
+
   const currentWs = workspaces.find((w) => w.id === workspaceId);
   const detectSectionTitle =
     currentWs?.type === "remote" ? "Tools from remote workspace" : "Available on this machine";
@@ -249,10 +299,19 @@ export function AgentListView() {
   );
 
   return (
-    <div className="flex h-full flex-col bg-canvas">
+    <div className="flex h-full flex-col bg-canvas/55 backdrop-blur-[2px]">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border/70 bg-background/40 px-6 py-4 backdrop-blur-sm">
         <h1 className="text-sm font-semibold text-foreground">Agents</h1>
+        {agents.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void spawnAll()}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+          >
+            Spawn all
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -311,6 +370,8 @@ export function AgentListView() {
                 onEditPrompt={() => setPromptAgent(agent)}
                 onDisconnect={() => void disconnectAgent(agent)}
                 onReconnect={() => void reconnectAgent(agent)}
+                onSpawn={() => void spawnManaged(agent)}
+                onStopSpawn={() => void stopSpawn(agent)}
                 actionBusy={agentActionBusy[agent.id] ?? null}
               />
             ))}

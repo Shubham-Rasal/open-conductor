@@ -137,6 +137,7 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(appMiddleware.OptionalAuth(jwtSecret, guestUserIDStr))
 			handler.RegisterWorkspaceRoutes(r, store)
+			handler.RegisterChatRoutes(r, store)
 			handler.RegisterIssueRoutes(r, store)
 			handler.RegisterAgentRoutes(r, store)
 			handler.RegisterCommentRoutes(r, store)

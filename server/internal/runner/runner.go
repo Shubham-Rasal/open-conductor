@@ -43,7 +43,17 @@ func (reg *Registry) Start(parentCtx context.Context, q *db.Queries, runtimeID, 
 	reg.running[key] = cancel
 	reg.mu.Unlock()
 
-	ex := newExecutor(provider, workspaceType, connectionURL, slog.Default())
+	workDir := ""
+	if wsRow, err := q.GetWorkspace(parentCtx, workspaceID); err == nil && wsRow.WorkingDirectory != nil {
+		workDir = strings.TrimSpace(*wsRow.WorkingDirectory)
+		if strings.HasPrefix(workDir, "~/") {
+			if home, err := os.UserHomeDir(); err == nil {
+				workDir = filepath.Join(home, strings.TrimPrefix(workDir, "~/"))
+			}
+		}
+	}
+
+	ex := newExecutor(provider, workspaceType, connectionURL, workDir, slog.Default())
 	r := &Runner{
 		q:               q,
 		runtimeID:       runtimeID,

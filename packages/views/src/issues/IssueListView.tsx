@@ -8,6 +8,9 @@ import type { Issue, Agent } from "@open-conductor/core/types";
 import { useNavigation } from "../navigation";
 import { CreateIssueModal } from "./CreateIssueModal";
 import { ProviderIcon, resolveProviderForAgent } from "../agents/ProviderIcon";
+import { workspaceMembersOptions } from "@open-conductor/core/workspaces";
+import type { WorkspaceMemberRow } from "@open-conductor/core/types";
+import { resolveAgent, resolveMember } from "./issueAssignee";
 
 // ─── Column config ────────────────────────────────────────────────────────────
 
@@ -97,14 +100,34 @@ function AgentAvatar({
 
 // ─── Issue card ───────────────────────────────────────────────────────────────
 
+function MemberAvatar({ member, size = "md" }: { member: WorkspaceMemberRow; size?: "sm" | "md" }) {
+  const initials = member.name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  const dim = size === "sm" ? "h-5 w-5 text-[8px]" : "h-7 w-7 text-[10px]";
+  return (
+    <span
+      title={member.name}
+      className={`inline-flex ${dim} items-center justify-center rounded-full border border-border/60 bg-secondary font-semibold text-secondary-foreground`}
+    >
+      {initials}
+    </span>
+  );
+}
+
 function IssueCard({
   issue,
   agent,
+  member,
   prefix,
   onClick,
 }: {
   issue: Issue;
   agent: Agent | undefined;
+  member: WorkspaceMemberRow | undefined;
   prefix: string;
   onClick: () => void;
 }) {
@@ -142,9 +165,11 @@ function IssueCard({
             <span className="text-[11px] text-muted-foreground/60">—</span>
           )}
         </div>
-        {(assigneeProvider || agent) && (
+        {(assigneeProvider || agent || member) && (
           <div className="flex shrink-0 items-center">
-            {assigneeProvider ? (
+            {member ? (
+              <MemberAvatar member={member} />
+            ) : assigneeProvider ? (
               <span className="flex items-center" title={agent?.name ?? assigneeProvider}>
                 <ProviderIcon provider={assigneeProvider} className="h-5 w-5" />
               </span>
@@ -164,6 +189,7 @@ function BoardColumn({
   col,
   issues,
   agents,
+  members,
   prefix,
   onCardClick,
   onAdd,
@@ -171,11 +197,13 @@ function BoardColumn({
   col: (typeof COLUMNS)[number];
   issues: Issue[];
   agents: Agent[];
+  members: WorkspaceMemberRow[];
   prefix: string;
   onCardClick: (id: string) => void;
   onAdd: () => void;
 }) {
   const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]));
+  const memberMap = Object.fromEntries(members.map((m) => [m.user_id, m]));
   const title = `${col.label} (${issues.length})`;
 
   return (
@@ -218,7 +246,8 @@ function BoardColumn({
           <IssueCard
             key={issue.id}
             issue={issue}
-            agent={issue.assignee_id ? agentMap[issue.assignee_id] : undefined}
+            agent={resolveAgent(issue, agents)}
+            member={resolveMember(issue, members) ?? (issue.user_assignee_id ? memberMap[issue.user_assignee_id] : undefined)}
             prefix={prefix}
             onClick={() => onCardClick(issue.id)}
           />
@@ -248,11 +277,13 @@ const STATUS_BADGE: Record<string, string> = {
 function ListRow({
   issue,
   agent,
+  member,
   prefix,
   onClick,
 }: {
   issue: Issue;
   agent: Agent | undefined;
+  member: WorkspaceMemberRow | undefined;
   prefix: string;
   onClick: () => void;
 }) {
@@ -273,9 +304,11 @@ function ListRow({
           {badge.label}
         </span>
       )}
-      {(assigneeProvider || agent) && (
+      {(assigneeProvider || agent || member) && (
         <div className="flex flex-shrink-0 items-center">
-          {assigneeProvider ? (
+          {member ? (
+            <MemberAvatar member={member} size="sm" />
+          ) : assigneeProvider ? (
             <span title={agent?.name ?? assigneeProvider}>
               <ProviderIcon provider={assigneeProvider} className="h-4 w-4" />
             </span>
@@ -302,6 +335,7 @@ export function IssueListView() {
   const { data: issues = [], isLoading } = useQuery(issueListOptions(apiClient, workspaceId));
   const { data: agents = [] } = useQuery(agentListOptions(apiClient, workspaceId));
   const { data: workspaces = [] } = useQuery(workspaceListOptions(apiClient));
+  const { data: members = [] } = useQuery(workspaceMembersOptions(apiClient, workspaceId));
 
   const workspace = workspaces.find((w) => w.id === workspaceId);
   const prefix = workspace?.prefix ?? "OC";
@@ -312,10 +346,11 @@ export function IssueListView() {
   ) as Record<StatusKey, Issue[]>;
 
   const countLabel = `${issues.length} Issue${issues.length === 1 ? "" : "s"}`;
-  const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]));
+  const memberMap = Object.fromEntries(members.map((m) => [m.user_id, m]));
+  const issuesPath = `/w/${workspaceId}/issues`;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-canvas">
+    <div className="flex h-full min-h-0 flex-col bg-canvas/55 backdrop-blur-[2px]">
       <header className="flex-shrink-0 border-b border-border/70 bg-background/40 px-6 pb-0 pt-4 backdrop-blur-sm">
         <nav className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
           <span className="font-medium text-foreground/90">{workspaceName}</span>
@@ -337,7 +372,7 @@ export function IssueListView() {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Board
+                Kanban
               </button>
               <button
                 type="button"
@@ -396,8 +431,9 @@ export function IssueListView() {
               col={col}
               issues={grouped[col.key] ?? []}
               agents={agents}
+              members={members}
               prefix={prefix}
-              onCardClick={(id) => nav.push(`/issues/${id}`)}
+              onCardClick={(id) => nav.push(`${issuesPath}/${id}`)}
               onAdd={() => setShowCreate(true)}
             />
           ))}
@@ -415,9 +451,10 @@ export function IssueListView() {
             <ListRow
               key={issue.id}
               issue={issue}
-              agent={issue.assignee_id ? agentMap[issue.assignee_id] : undefined}
+              agent={resolveAgent(issue, agents)}
+              member={resolveMember(issue, members) ?? (issue.user_assignee_id ? memberMap[issue.user_assignee_id] : undefined)}
               prefix={prefix}
-              onClick={() => nav.push(`/issues/${issue.id}`)}
+              onClick={() => nav.push(`${issuesPath}/${issue.id}`)}
             />
           ))}
         </div>

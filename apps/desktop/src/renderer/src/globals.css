@@ -21,3 +21,10 @@
 @source "../../../../../packages/core/**/*.{ts,tsx}";
 @source "../../../../../packages/views/**/*.{ts,tsx}";
 @source "./**/*.tsx";
+
+/* Translucent window: page chrome must stay transparent so OS/desktop shows through */
+html,
+body,
+#root {
+  background: transparent !important;
+}

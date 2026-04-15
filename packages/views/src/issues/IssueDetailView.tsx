@@ -3,9 +3,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UpdateIssueInput } from "@open-conductor/core/issues";
 import { issueDetailOptions, issueCommentsOptions, issueTasksOptions, useUpdateIssue, useCreateComment } from "@open-conductor/core/issues";
 import { agentListOptions } from "@open-conductor/core/agents";
+import { workspaceMembersOptions } from "@open-conductor/core/workspaces";
 import { useCoreContext } from "@open-conductor/core/platform";
 import type { AgentTask, TaskMessage } from "@open-conductor/core/types";
 import { useNavigation } from "../navigation";
+import { AssigneeSelector, type AssigneeKind } from "./AssigneeSelector";
+import { agentIdForIssue, userIdForIssue } from "./issueAssignee";
 
 type IssuePatch = Omit<UpdateIssueInput, "workspaceId" | "id">;
 
@@ -148,6 +151,7 @@ export function IssueDetailView({ issueId }: Props) {
     },
   });
   const { data: agents = [] } = useQuery(agentListOptions(apiClient, workspaceId));
+  const { data: members = [] } = useQuery(workspaceMembersOptions(apiClient, workspaceId));
 
   if (isLoading) return <p className="p-8 text-sm text-muted-foreground">Loading…</p>;
   if (!issue) return <p className="p-8 text-sm text-destructive">Issue not found.</p>;
@@ -165,6 +169,11 @@ export function IssueDetailView({ issueId }: Props) {
 
   const activeTask = tasks.find((t) => t.status === "running" || t.status === "dispatched");
   const hasRunningTask = !!activeTask;
+
+  const aid = agentIdForIssue(issue);
+  const uid = userIdForIssue(issue);
+  const assigneeKind: AssigneeKind =
+    issue.assignee_type === "agent" && aid ? "agent" : issue.assignee_type === "member" && uid ? "member" : "none";
 
   return (
     <div className="flex h-full flex-col">
@@ -266,26 +275,38 @@ export function IssueDetailView({ issueId }: Props) {
 
           {/* Assignee */}
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Assign to Agent</label>
-            <select
-              value={issue.assignee_id ?? ""}
-              onChange={(e) => {
-                const agentId = e.target.value;
-                update({
-                  assignee_id: agentId || null,
-                  assignee_type: agentId ? "agent" : null,
-                });
+            <AssigneeSelector
+              kind={assigneeKind}
+              agentId={aid ?? ""}
+              userId={uid ?? ""}
+              agents={agents}
+              members={members}
+              onChange={(next) => {
+                if (next.kind === "none") {
+                  update({
+                    assignee_type: null,
+                    agent_assignee_id: null,
+                    user_assignee_id: null,
+                    assignee_id: null,
+                  });
+                } else if (next.kind === "agent") {
+                  update({
+                    assignee_type: "agent",
+                    agent_assignee_id: next.agentId || null,
+                    user_assignee_id: null,
+                    assignee_id: next.agentId || null,
+                  });
+                } else {
+                  update({
+                    assignee_type: "member",
+                    user_assignee_id: next.userId || null,
+                    agent_assignee_id: null,
+                    assignee_id: null,
+                  });
+                }
               }}
-              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="">Unassigned</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({a.status})
-                </option>
-              ))}
-            </select>
-            {issue.assignee_type === "agent" && issue.assignee_id && (
+            />
+            {issue.assignee_type === "agent" && aid && (
               <p className="mt-1 text-xs text-brand">
                 {hasRunningTask ? "Agent is working on this…" : "Agent will pick this up automatically"}
               </p>

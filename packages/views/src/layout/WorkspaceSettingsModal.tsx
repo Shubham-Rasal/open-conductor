@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getPickDirectory } from "../pickDirectory";
 import { useQuery } from "@tanstack/react-query";
 import { useCoreContext } from "@open-conductor/core/platform";
 import { workspaceDetailOptions, useUpdateWorkspace } from "@open-conductor/core/workspaces";
@@ -19,6 +20,7 @@ export function WorkspaceSettingsModal({ workspaceId, open, onClose }: Props) {
 
   const [workingDir, setWorkingDir] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [pickBusy, setPickBusy] = useState(false);
 
   useEffect(() => {
     if (!open || !ws) return;
@@ -47,6 +49,18 @@ export function WorkspaceSettingsModal({ workspaceId, open, onClose }: Props) {
     }
   }
 
+  async function browseWorkingDir() {
+    const pick = getPickDirectory();
+    if (!pick) return;
+    setPickBusy(true);
+    try {
+      const res = await pick();
+      if (res.ok) setWorkingDir(res.path);
+    } finally {
+      setPickBusy(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
@@ -69,15 +83,26 @@ export function WorkspaceSettingsModal({ workspaceId, open, onClose }: Props) {
               <label className="text-sm font-medium text-foreground" htmlFor="ws-cwd">
                 Working directory
               </label>
-              <input
-                id="ws-cwd"
-                type="text"
-                value={workingDir}
-                onChange={(e) => setWorkingDir(e.target.value)}
-                placeholder="/path/to/project or ~/projects/repo"
-                autoComplete="off"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+              <div className="flex gap-2">
+                <input
+                  id="ws-cwd"
+                  type="text"
+                  value={workingDir}
+                  onChange={(e) => setWorkingDir(e.target.value)}
+                  placeholder="/path/to/project or ~/projects/repo"
+                  autoComplete="off"
+                  className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button
+                  type="button"
+                  disabled={pickBusy || !getPickDirectory()}
+                  title={getPickDirectory() ? "Choose folder" : "Available in the desktop app"}
+                  onClick={() => void browseWorkingDir()}
+                  className="shrink-0 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+                >
+                  {pickBusy ? "…" : "Browse…"}
+                </button>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Leave empty to use the server process default (usually where Open Conductor was started). Changes apply to new tasks; reconnect agents if needed.
               </p>

@@ -21,3 +21,13 @@ export interface User {
   avatar_url?: string;
   created_at: string;
 }
+
+export interface WorkspaceMemberRow {
+  workspace_id: string;
+  user_id: string;
+  role: string;
+  joined_at: string;
+  email: string;
+  name: string;
+  avatar_url: string | null;
+}

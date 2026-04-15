@@ -18,6 +18,7 @@ type Agent struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	Model              *string            `json:"model"`
+	SpawnMode          string             `json:"spawn_mode"`
 }
 
 type AgentRuntime struct {
@@ -61,19 +62,20 @@ type Comment struct {
 }
 
 type Issue struct {
-	ID           pgtype.UUID        `json:"id"`
-	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
-	Title        string             `json:"title"`
-	Description  *string            `json:"description"`
-	Status       string             `json:"status"`
-	Priority     string             `json:"priority"`
-	AssigneeID   pgtype.UUID        `json:"assignee_id"`
-	CreatedByID  pgtype.UUID        `json:"created_by_id"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	Number       *int32             `json:"number"`
-	AssigneeType *string            `json:"assignee_type"`
-	Position     float64            `json:"position"`
+	ID              pgtype.UUID        `json:"id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	Title           string             `json:"title"`
+	Description     *string            `json:"description"`
+	Status          string             `json:"status"`
+	Priority        string             `json:"priority"`
+	CreatedByID     pgtype.UUID        `json:"created_by_id"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	Number          *int32             `json:"number"`
+	AssigneeType    *string            `json:"assignee_type"`
+	Position        float64            `json:"position"`
+	AgentAssigneeID pgtype.UUID        `json:"agent_assignee_id"`
+	UserAssigneeID  pgtype.UUID        `json:"user_assignee_id"`
 }
 
 type User struct {
@@ -109,4 +111,14 @@ type WorkspaceMember struct {
 	UserID      pgtype.UUID        `json:"user_id"`
 	Role        string             `json:"role"`
 	JoinedAt    pgtype.Timestamptz `json:"joined_at"`
+}
+
+type WorkspaceMessage struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	AuthorType  string             `json:"author_type"`
+	AuthorID    pgtype.UUID        `json:"author_id"`
+	Content     string             `json:"content"`
+	Metadata    []byte             `json:"metadata"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }

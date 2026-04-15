@@ -21,10 +21,10 @@ RETURNING next_number - 1 AS number;
 -- name: CreateIssue :one
 INSERT INTO issues (
     workspace_id, number, title, description,
-    status, priority, assignee_type, assignee_id,
+    status, priority, assignee_type, agent_assignee_id, user_assignee_id,
     created_by_id, position
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     COALESCE((SELECT MAX(position) FROM issues WHERE workspace_id = $1), 0) + 1
 )
 RETURNING *;
@@ -36,7 +36,8 @@ UPDATE issues SET
     status       = COALESCE(sqlc.narg(status), status),
     priority     = COALESCE(sqlc.narg(priority), priority),
     assignee_type = sqlc.narg(assignee_type),
-    assignee_id  = sqlc.narg(assignee_id),
+    agent_assignee_id = sqlc.narg(agent_assignee_id),
+    user_assignee_id = sqlc.narg(user_assignee_id),
     position     = COALESCE(sqlc.narg(position), position),
     updated_at   = NOW()
 WHERE id = sqlc.arg(id)

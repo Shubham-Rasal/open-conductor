@@ -31,8 +31,25 @@ func RegisterWorkspaceRoutes(r chi.Router, s *Store) {
 	r.Get("/workspaces", listWorkspaces(s))
 	r.Post("/workspaces", createWorkspace(s))
 	r.Get("/workspaces/{workspaceId}", getWorkspace(s))
+	r.Get("/workspaces/{workspaceId}/members", listWorkspaceMembers(s))
 	r.Patch("/workspaces/{workspaceId}", patchWorkspace(s))
 	r.Delete("/workspaces/{workspaceId}", deleteWorkspace(s))
+}
+
+func listWorkspaceMembers(s *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := parseUUID(chi.URLParam(r, "workspaceId"))
+		if !id.Valid {
+			http.Error(w, "invalid workspace id", http.StatusBadRequest)
+			return
+		}
+		rows, err := s.Q.ListWorkspaceMembersWithUsers(r.Context(), id)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"members": rows})
+	}
 }
 
 func listWorkspaces(s *Store) http.HandlerFunc {

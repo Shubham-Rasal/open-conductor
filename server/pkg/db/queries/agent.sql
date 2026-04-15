@@ -14,6 +14,11 @@ UPDATE agents SET status = $2, updated_at = NOW()
 WHERE id = $1
 RETURNING *;
 
+-- name: SetAgentSpawnMode :one
+UPDATE agents SET spawn_mode = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING *;
+
 -- name: ClaimAgentTask :one
 UPDATE agent_task_queue
 SET status = 'dispatched'

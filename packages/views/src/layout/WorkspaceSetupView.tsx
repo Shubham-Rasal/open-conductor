@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getPickDirectory } from "../pickDirectory";
 import { useCoreContext } from "@open-conductor/core/platform";
 import { useCreateWorkspace } from "@open-conductor/core/workspaces";
 import type { Workspace, WorkspaceType } from "@open-conductor/core/types";
@@ -19,6 +20,7 @@ export function WorkspaceSetupView({ onCreated, onCancel, compact }: Props) {
   const [connectionURL, setConnectionURL] = useState("");
   const [workingDir, setWorkingDir] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [pickBusy, setPickBusy] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,6 +37,18 @@ export function WorkspaceSetupView({ onCreated, onCancel, compact }: Props) {
       onCreated(ws);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create workspace");
+    }
+  }
+
+  async function browseWorkingDir() {
+    const pick = getPickDirectory();
+    if (!pick) return;
+    setPickBusy(true);
+    try {
+      const res = await pick();
+      if (res.ok) setWorkingDir(res.path);
+    } finally {
+      setPickBusy(false);
     }
   }
 
@@ -70,13 +84,24 @@ export function WorkspaceSetupView({ onCreated, onCancel, compact }: Props) {
 
         <div className="space-y-1">
           <label className="text-sm font-medium text-foreground">Working directory</label>
-          <input
-            type="text"
-            value={workingDir}
-            onChange={(e) => setWorkingDir(e.target.value)}
-            placeholder="/path/to/repo (optional)"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={workingDir}
+              onChange={(e) => setWorkingDir(e.target.value)}
+              placeholder="/path/to/repo (optional)"
+              className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <button
+              type="button"
+              disabled={pickBusy || !getPickDirectory()}
+              title={getPickDirectory() ? "Choose folder" : "Available in the desktop app"}
+              onClick={() => void browseWorkingDir()}
+              className="shrink-0 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+            >
+              {pickBusy ? "…" : "Browse…"}
+            </button>
+          </div>
           <p className="text-xs text-muted-foreground">
             Agents run CLI tools with this folder as the current directory. Tilde (~) is expanded.
           </p>

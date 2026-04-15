@@ -3,11 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "exports": {
+    "./home": "./src/home/index.tsx",
     "./layout": "./src/layout/index.tsx",
     "./auth": "./src/auth/index.tsx",
     "./issues": "./src/issues/index.tsx",
     "./agents": "./src/agents/index.tsx",
-    "./navigation": "./src/navigation/index.ts"
+    "./navigation": "./src/navigation/index.ts",
+    "./workspace": "./src/workspace/index.tsx",
+    "./theme": "./src/theme/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
@@ -18,12 +21,16 @@
     "@open-conductor/ui": "workspace:*",
     "@tanstack/react-query": "^5.0.0",
     "react": "^19.2.0",
-    "react-router-dom": "^7.5.2"
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.5.2",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@open-conductor/eslint-config": "workspace:*",
     "@open-conductor/typescript-config": "workspace:*",
     "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
     "eslint": "^9.39.1",
     "typescript": "5.9.2"
   }

@@ -10,7 +10,10 @@ export interface Issue {
   status: IssueStatus;
   priority: IssuePriority;
   assignee_type: "member" | "agent" | null;
-  assignee_id: string | null;
+  /** @deprecated Prefer agent_assignee_id / user_assignee_id */
+  assignee_id?: string | null;
+  agent_assignee_id?: string | null;
+  user_assignee_id?: string | null;
   created_by_id: string;
   position: number;
   created_at: string;

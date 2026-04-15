@@ -106,6 +106,59 @@ func (q *Queries) GetWorkspaceBySlug(ctx context.Context, slug string) (Workspac
 	return i, err
 }
 
+const listWorkspaceMembersWithUsers = `-- name: ListWorkspaceMembersWithUsers :many
+SELECT
+    wm.workspace_id,
+    wm.user_id,
+    wm.role,
+    wm.joined_at,
+    u.email,
+    u.name,
+    u.avatar_url
+FROM workspace_members wm
+JOIN users u ON u.id = wm.user_id
+WHERE wm.workspace_id = $1
+ORDER BY u.name ASC
+`
+
+type ListWorkspaceMembersWithUsersRow struct {
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	Role        string             `json:"role"`
+	JoinedAt    pgtype.Timestamptz `json:"joined_at"`
+	Email       string             `json:"email"`
+	Name        string             `json:"name"`
+	AvatarUrl   *string            `json:"avatar_url"`
+}
+
+func (q *Queries) ListWorkspaceMembersWithUsers(ctx context.Context, workspaceID pgtype.UUID) ([]ListWorkspaceMembersWithUsersRow, error) {
+	rows, err := q.db.Query(ctx, listWorkspaceMembersWithUsers, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkspaceMembersWithUsersRow{}
+	for rows.Next() {
+		var i ListWorkspaceMembersWithUsersRow
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.UserID,
+			&i.Role,
+			&i.JoinedAt,
+			&i.Email,
+			&i.Name,
+			&i.AvatarUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkspaces = `-- name: ListWorkspaces :many
 SELECT id, name, slug, created_at, updated_at, prefix, description, type, connection_url, working_directory FROM workspaces ORDER BY created_at DESC
 `

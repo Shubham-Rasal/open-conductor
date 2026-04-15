@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -22,10 +23,66 @@ func RegisterAgentRoutes(r chi.Router, s *Store) {
 		r.Post("/", createAgent(s))
 		r.Post("/{agentId}/disconnect", disconnectAgent(s))
 		r.Post("/{agentId}/reconnect", reconnectAgent(s))
+		r.Post("/{agentId}/spawn", spawnManagedAgent(s))
+		r.Post("/{agentId}/stop", stopManagedAgent(s))
 		r.Post("/{agentId}/test", testAgentIntegration(s))
 		r.Get("/{agentId}", getAgent(s))
 		r.Patch("/{agentId}", patchAgent(s))
 	})
+}
+
+func spawnManagedAgent(s *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
+		id := parseUUID(chi.URLParam(r, "agentId"))
+		if !wsID.Valid || !id.Valid {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+		ag, err := s.Q.GetAgent(r.Context(), id)
+		if err != nil || !sameWorkspace(ag.WorkspaceID, wsID) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+
+		var req reconnectAgentRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		provider := req.Provider
+		if provider == "" {
+			if rt, e := s.Q.GetAgentRuntimeByAgentAndWorkspace(r.Context(), db.GetAgentRuntimeByAgentAndWorkspaceParams{
+				AgentID:     id,
+				WorkspaceID: wsID,
+			}); e == nil {
+				provider = rt.Provider
+			}
+		}
+		if provider == "" {
+			provider = "claude"
+		}
+
+		dm := req.DefaultModel
+		if (dm == nil || (dm != nil && *dm == "")) && ag.Model != nil && *ag.Model != "" {
+			dm = ag.Model
+		}
+
+		if _, err := s.Q.SetAgentSpawnMode(r.Context(), db.SetAgentSpawnModeParams{ID: id, SpawnMode: "managed"}); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		managed := "managed"
+		runtimeRow, err := startDaemonForAgent(context.Background(), s, id, provider, &managed, dm)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		broadcastEvent("agent:status", map[string]any{"agent_id": formatUUID(id), "status": "idle"})
+		writeJSON(w, runtimeRow)
+	}
+}
+
+func stopManagedAgent(s *Store) http.HandlerFunc {
+	return disconnectAgent(s)
 }
 
 func detectAgents(s *Store) http.HandlerFunc {
@@ -59,6 +116,7 @@ func listAgents(s *Store) http.HandlerFunc {
 
 		agents, err := s.Q.ListAgents(r.Context(), wsID)
 		if err != nil {
+			slog.Error("list agents", "workspace_id", formatUUID(wsID), "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -71,6 +129,7 @@ func listAgents(s *Store) http.HandlerFunc {
 		if len(ids) > 0 {
 			rts, err := s.Q.ListAgentRuntimes(r.Context(), ids)
 			if err != nil {
+				slog.Error("list agent runtimes", "workspace_id", formatUUID(wsID), "err", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}

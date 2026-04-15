@@ -5,6 +5,7 @@ import { WsClient } from "../api/ws";
 import { useAuthStore } from "../auth/store";
 import { onIssueCreated, onIssueUpdated, onIssueDeleted, issueKeys } from "../issues";
 import { agentKeys, type ListAgentsResponse } from "../agents";
+import { chatKeys } from "../chat/queries";
 import { workspaceListOptions } from "../workspaces/queries";
 import { useWorkspaceStore } from "../workspaces/store";
 import type { Issue, Agent, AgentTask, TaskMessage, TaskStageEvent } from "../types";
@@ -116,6 +117,16 @@ function WsEventBridge({ workspaceId }: { workspaceId: string }) {
       );
     });
 
+    const offChatMsg = wsClient.on("chat:message", () => {
+      void qc.invalidateQueries({ queryKey: chatKeys.messages(workspaceId) });
+    });
+    const offChatStream = wsClient.on("chat:stream", (e) => {
+      const p = e.payload as { workspace_id?: string; done?: boolean };
+      if (p.done) {
+        void qc.invalidateQueries({ queryKey: chatKeys.messages(workspaceId) });
+      }
+    });
+
     return () => {
       offCreated();
       offUpdated();
@@ -123,6 +134,8 @@ function WsEventBridge({ workspaceId }: { workspaceId: string }) {
       offTaskStage();
       offTaskMsg();
       offAgentStatus();
+      offChatMsg();
+      offChatStream();
       wsClient.disconnect();
     };
   }, [wsClient, qc, workspaceId]);
@@ -182,33 +195,23 @@ function WorkspaceBootstrap({
 }) {
   const { data: workspaces } = useQuery(workspaceListOptions(apiClient));
 
-  const { data: localConfig } = useQuery({
-    queryKey: ["local-config"],
-    queryFn: () => apiClient.get<{ workspace_id: string }>("/api/local"),
-    enabled: !explicitId,
-    staleTime: Infinity,
-    retry: 3,
-  });
-
   const storeWorkspace = useWorkspaceStore((s) => s.workspace);
   const hydrateWorkspace = useWorkspaceStore((s) => s.hydrateWorkspace);
 
+  // Restore only a previously persisted workspace id — never auto-select the first workspace.
   useEffect(() => {
     if (explicitId) return;
     if (!workspaces?.length) return;
-    let preferred: string | null = null;
+    let stored: string | null = null;
     try {
-      preferred = localStorage.getItem("oc_workspace_id");
+      stored = localStorage.getItem("oc_workspace_id");
     } catch {
       /* ignore */
     }
-    if (!preferred && localConfig?.workspace_id) {
-      preferred = localConfig.workspace_id;
-    }
-    hydrateWorkspace(workspaces, preferred);
-  }, [explicitId, workspaces, localConfig, hydrateWorkspace]);
+    hydrateWorkspace(workspaces, stored === null ? undefined : stored);
+  }, [explicitId, workspaces, hydrateWorkspace]);
 
-  const resolvedId = explicitId ?? storeWorkspace?.id ?? localConfig?.workspace_id ?? "";
+  const resolvedId = explicitId ?? storeWorkspace?.id ?? "";
 
   const ctxValue: CoreContextValue = {
     apiClient,

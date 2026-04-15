@@ -20,6 +20,7 @@ export interface Agent {
   created_at: string;
   updated_at: string;
   model?: string | null;
+  spawn_mode?: "daemon" | "managed";
   /** Present when listing agents; reflects agent_runtimes for this agent. */
   runtime?: AgentRuntime;
 }

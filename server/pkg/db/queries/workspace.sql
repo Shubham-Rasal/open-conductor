@@ -26,3 +26,17 @@ RETURNING *;
 
 -- name: DeleteWorkspace :exec
 DELETE FROM workspaces WHERE id = $1;
+
+-- name: ListWorkspaceMembersWithUsers :many
+SELECT
+    wm.workspace_id,
+    wm.user_id,
+    wm.role,
+    wm.joined_at,
+    u.email,
+    u.name,
+    u.avatar_url
+FROM workspace_members wm
+JOIN users u ON u.id = wm.user_id
+WHERE wm.workspace_id = $1
+ORDER BY u.name ASC;

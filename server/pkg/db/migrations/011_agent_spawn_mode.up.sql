@@ -1,0 +1,2 @@
+ALTER TABLE agents
+    ADD COLUMN IF NOT EXISTS spawn_mode TEXT NOT NULL DEFAULT 'daemon';

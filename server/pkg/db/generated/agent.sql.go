@@ -179,7 +179,7 @@ func (q *Queries) CompleteTask(ctx context.Context, arg CompleteTaskParams) (Age
 const createAgent = `-- name: CreateAgent :one
 INSERT INTO agents (workspace_id, name, instructions, max_concurrent_tasks, model)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model
+RETURNING id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model, spawn_mode
 `
 
 type CreateAgentParams struct {
@@ -209,6 +209,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Model,
+		&i.SpawnMode,
 	)
 	return i, err
 }
@@ -294,7 +295,7 @@ func (q *Queries) FailTask(ctx context.Context, arg FailTaskParams) (AgentTaskQu
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model FROM agents WHERE id = $1
+SELECT id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model, spawn_mode FROM agents WHERE id = $1
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id pgtype.UUID) (Agent, error) {
@@ -310,12 +311,13 @@ func (q *Queries) GetAgent(ctx context.Context, id pgtype.UUID) (Agent, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Model,
+		&i.SpawnMode,
 	)
 	return i, err
 }
 
 const getIssueForTask = `-- name: GetIssueForTask :one
-SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.assignee_id, i.created_by_id, i.created_at, i.updated_at, i.number, i.assignee_type, i.position FROM issues i
+SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.created_by_id, i.created_at, i.updated_at, i.number, i.assignee_type, i.position, i.agent_assignee_id, i.user_assignee_id FROM issues i
 JOIN agent_task_queue atq ON atq.issue_id = i.id
 WHERE atq.id = $1
 `
@@ -330,13 +332,14 @@ func (q *Queries) GetIssueForTask(ctx context.Context, id pgtype.UUID) (Issue, e
 		&i.Description,
 		&i.Status,
 		&i.Priority,
-		&i.AssigneeID,
 		&i.CreatedByID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Number,
 		&i.AssigneeType,
 		&i.Position,
+		&i.AgentAssigneeID,
+		&i.UserAssigneeID,
 	)
 	return i, err
 }
@@ -363,7 +366,7 @@ func (q *Queries) GetLastCompletedSession(ctx context.Context, arg GetLastComple
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model FROM agents WHERE workspace_id = $1 ORDER BY created_at DESC
+SELECT id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model, spawn_mode FROM agents WHERE workspace_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAgents(ctx context.Context, workspaceID pgtype.UUID) ([]Agent, error) {
@@ -385,6 +388,7 @@ func (q *Queries) ListAgents(ctx context.Context, workspaceID pgtype.UUID) ([]Ag
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Model,
+			&i.SpawnMode,
 		); err != nil {
 			return nil, err
 		}
@@ -546,6 +550,35 @@ func (q *Queries) SetAgentModel(ctx context.Context, arg SetAgentModelParams) er
 	return err
 }
 
+const setAgentSpawnMode = `-- name: SetAgentSpawnMode :one
+UPDATE agents SET spawn_mode = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model, spawn_mode
+`
+
+type SetAgentSpawnModeParams struct {
+	ID        pgtype.UUID `json:"id"`
+	SpawnMode string      `json:"spawn_mode"`
+}
+
+func (q *Queries) SetAgentSpawnMode(ctx context.Context, arg SetAgentSpawnModeParams) (Agent, error) {
+	row := q.db.QueryRow(ctx, setAgentSpawnMode, arg.ID, arg.SpawnMode)
+	var i Agent
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Instructions,
+		&i.Status,
+		&i.MaxConcurrentTasks,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Model,
+		&i.SpawnMode,
+	)
+	return i, err
+}
+
 const startTask = `-- name: StartTask :one
 UPDATE agent_task_queue
 SET status = 'running', started_at = NOW()
@@ -580,7 +613,7 @@ func (q *Queries) StartTask(ctx context.Context, id pgtype.UUID) (AgentTaskQueue
 const updateAgentInstructions = `-- name: UpdateAgentInstructions :one
 UPDATE agents SET instructions = $3, updated_at = NOW()
 WHERE id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model
+RETURNING id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model, spawn_mode
 `
 
 type UpdateAgentInstructionsParams struct {
@@ -602,6 +635,7 @@ func (q *Queries) UpdateAgentInstructions(ctx context.Context, arg UpdateAgentIn
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Model,
+		&i.SpawnMode,
 	)
 	return i, err
 }
@@ -609,7 +643,7 @@ func (q *Queries) UpdateAgentInstructions(ctx context.Context, arg UpdateAgentIn
 const updateAgentStatus = `-- name: UpdateAgentStatus :one
 UPDATE agents SET status = $2, updated_at = NOW()
 WHERE id = $1
-RETURNING id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model
+RETURNING id, workspace_id, name, instructions, status, max_concurrent_tasks, created_at, updated_at, model, spawn_mode
 `
 
 type UpdateAgentStatusParams struct {
@@ -630,6 +664,7 @@ func (q *Queries) UpdateAgentStatus(ctx context.Context, arg UpdateAgentStatusPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Model,
+		&i.SpawnMode,
 	)
 	return i, err
 }

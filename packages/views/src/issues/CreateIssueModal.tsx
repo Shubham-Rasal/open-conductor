@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useCreateIssue } from "@open-conductor/core/issues";
 import { agentListOptions } from "@open-conductor/core/agents";
+import { workspaceMembersOptions } from "@open-conductor/core/workspaces";
 import { useCoreContext } from "@open-conductor/core/platform";
+import { AssigneeSelector, type AssigneeKind } from "./AssigneeSelector";
 
 interface Props {
   onClose: () => void;
@@ -13,26 +15,35 @@ export function CreateIssueModal({ onClose, onCreated }: Props) {
   const { apiClient, workspaceId } = useCoreContext();
   const createIssue = useCreateIssue();
   const { data: agents = [] } = useQuery(agentListOptions(apiClient, workspaceId));
+  const { data: members = [] } = useQuery(workspaceMembersOptions(apiClient, workspaceId));
 
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState("todo");
   const [priority, setPriority] = useState("no_priority");
-  const [assigneeId, setAssigneeId] = useState("");
+  const [kind, setKind] = useState<AssigneeKind>("none");
+  const [agentId, setAgentId] = useState("");
+  const [userId, setUserId] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
 
-    const selectedAgent = agents.find((a) => a.id === assigneeId);
-
-    await createIssue.mutateAsync({
+    const body: Parameters<typeof createIssue.mutateAsync>[0] = {
       workspaceId,
       title: title.trim(),
       status,
       priority,
-      assignee_type: selectedAgent ? "agent" : undefined,
-      assignee_id: selectedAgent ? assigneeId : undefined,
-    });
+    };
+
+    if (kind === "agent" && agentId) {
+      body.assignee_type = "agent";
+      body.agent_assignee_id = agentId;
+    } else if (kind === "member" && userId) {
+      body.assignee_type = "member";
+      body.user_assignee_id = userId;
+    }
+
+    await createIssue.mutateAsync(body);
 
     onCreated();
   }
@@ -43,11 +54,8 @@ export function CreateIssueModal({ onClose, onCreated }: Props) {
         <h2 className="mb-4 text-base font-semibold text-foreground">New Issue</h2>
 
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-          {/* Title */}
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Title
-            </label>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Title</label>
             <input
               autoFocus
               value={title}
@@ -59,11 +67,8 @@ export function CreateIssueModal({ onClose, onCreated }: Props) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            {/* Status */}
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                Status
-              </label>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
@@ -79,11 +84,8 @@ export function CreateIssueModal({ onClose, onCreated }: Props) {
               </select>
             </div>
 
-            {/* Priority */}
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                Priority
-              </label>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Priority</label>
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
@@ -98,29 +100,21 @@ export function CreateIssueModal({ onClose, onCreated }: Props) {
             </div>
           </div>
 
-          {/* Assignee (agents only for now) */}
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Assign to Agent
-            </label>
-            <select
-              value={assigneeId}
-              onChange={(e) => setAssigneeId(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="">Unassigned</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({a.status})
-                </option>
-              ))}
-            </select>
-          </div>
+          <AssigneeSelector
+            kind={kind}
+            agentId={agentId}
+            userId={userId}
+            agents={agents}
+            members={members}
+            onChange={(next) => {
+              setKind(next.kind);
+              if (next.agentId !== undefined) setAgentId(next.agentId);
+              if (next.userId !== undefined) setUserId(next.userId);
+            }}
+          />
 
           {createIssue.error && (
-            <p className="text-sm text-destructive">
-              {createIssue.error.message}
-            </p>
+            <p className="text-sm text-destructive">{createIssue.error.message}</p>
           )}
 
           <div className="flex justify-end gap-2 pt-2">

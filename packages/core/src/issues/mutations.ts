@@ -13,6 +13,8 @@ export interface CreateIssueInput {
   priority?: string;
   assignee_type?: string;
   assignee_id?: string;
+  agent_assignee_id?: string;
+  user_assignee_id?: string;
 }
 
 export function useCreateIssue() {
@@ -43,6 +45,8 @@ export interface UpdateIssueInput {
   priority?: string;
   assignee_type?: string | null;
   assignee_id?: string | null;
+  agent_assignee_id?: string | null;
+  user_assignee_id?: string | null;
   position?: number;
 }
 

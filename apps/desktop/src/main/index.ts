@@ -1,5 +1,9 @@
-import { app, BrowserWindow, shell } from "electron";
+import { existsSync } from "fs";
+import { app, BrowserWindow, nativeImage, shell } from "electron";
 import { join } from "path";
+import { registerGitCloneIpc, registerPickDirectoryIpc } from "./git-clone-ipc";
+
+const windowIconPath = join(__dirname, "../../resources/icon.png");
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -8,6 +12,12 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     titleBarStyle: "hiddenInset",
+    transparent: true,
+    backgroundColor: "#00000000",
+    ...(process.platform === "win32"
+      ? ({ backgroundMaterial: "acrylic" } as const)
+      : {}),
+    ...(existsSync(windowIconPath) ? { icon: windowIconPath } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
@@ -30,6 +40,16 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  registerGitCloneIpc();
+  registerPickDirectoryIpc();
+
+  if (process.platform === "darwin" && existsSync(windowIconPath)) {
+    const img = nativeImage.createFromPath(windowIconPath);
+    if (!img.isEmpty()) {
+      app.dock.setIcon(img);
+    }
+  }
+
   createWindow();
 
   app.on("activate", () => {

@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ApiClient } from "../api/client";
 import type { Workspace } from "../types";
-import type { ListWorkspacesResponse } from "./queries";
 import { workspaceKeys, workspaceListOptions } from "./queries";
 import { useWorkspaceStore } from "./store";
 
@@ -57,14 +56,10 @@ export function useDeleteWorkspace(api: ApiClient) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete<{ ok: boolean }>(`/api/workspaces/${id}`),
-    onSuccess: async (_, deletedId) => {
+    onSuccess: (_, deletedId) => {
       const cur = useWorkspaceStore.getState().workspace?.id;
       if (cur === deletedId) {
-        const fresh = await qc.fetchQuery({ ...workspaceListOptions(api), staleTime: 0 });
-        const list = Array.isArray(fresh)
-          ? fresh
-          : (fresh as ListWorkspacesResponse).workspaces;
-        useWorkspaceStore.getState().hydrateWorkspace(list);
+        useWorkspaceStore.getState().clearWorkspace();
       }
     },
     onSettled: () => {

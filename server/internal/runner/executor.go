@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	agentpkg "github.com/Shubham-Rasal/open-conductor/server/pkg/agent"
 )
@@ -31,7 +32,7 @@ func (e *LocalExecutor) Execute(ctx context.Context, prompt string, opts agentpk
 	return b.Execute(ctx, prompt, opts)
 }
 
-// RemoteExecutor forwards execution to a remote daemon (stub until the remote side is implemented).
+// RemoteExecutor forwards execution to a non-SSH remote (not implemented).
 type RemoteExecutor struct {
 	BaseURL string
 }
@@ -40,15 +41,26 @@ func (e *RemoteExecutor) Execute(ctx context.Context, prompt string, opts agentp
 	_ = ctx
 	_ = prompt
 	_ = opts
-	return nil, fmt.Errorf("remote executor not implemented (connection_url=%q)", e.BaseURL)
+	return nil, fmt.Errorf("remote executor not implemented for non-SSH URL (connection_url=%q); use ssh://user@host:port", e.BaseURL)
 }
 
-func newExecutor(provider, workspaceType string, connectionURL *string, log *slog.Logger) Executor {
-	if workspaceType == "remote" && connectionURL != nil && *connectionURL != "" {
-		return &RemoteExecutor{BaseURL: *connectionURL}
-	}
+func newExecutor(provider, workspaceType string, connectionURL *string, workDir string, log *slog.Logger) Executor {
 	if log == nil {
 		log = slog.Default()
+	}
+	if workspaceType == "remote" && connectionURL != nil {
+		u := strings.TrimSpace(*connectionURL)
+		if strings.HasPrefix(u, "ssh://") {
+			return &RemoteSSHExecutor{
+				SSHURL:   u,
+				WorkDir:  workDir,
+				Provider: provider,
+				Logger:   log,
+			}
+		}
+		if u != "" {
+			return &RemoteExecutor{BaseURL: u}
+		}
 	}
 	return &LocalExecutor{Provider: provider, Logger: log}
 }

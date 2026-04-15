@@ -1,9 +1,21 @@
 <!doctype html>
-<html lang="en" class="h-full dark">
+<html lang="en" class="h-full">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Open Conductor</title>
+    <script>
+      (function () {
+        try {
+          var s = localStorage.getItem("oc-color-scheme");
+          var root = document.documentElement;
+          if (s === "light") root.classList.remove("dark");
+          else root.classList.add("dark");
+        } catch (e) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
   </head>
   <body class="h-full overflow-hidden antialiased font-sans">
     <div id="root" class="h-full"></div>
