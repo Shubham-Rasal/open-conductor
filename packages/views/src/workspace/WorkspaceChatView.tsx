@@ -295,7 +295,7 @@ function useConversations(workspaceId: string) {
         if (parsed.length > 0) return parsed;
       }
     } catch { /* ignore */ }
-    return [conversations[0].id];
+    return conversations[0] ? [conversations[0].id] : [];
   });
 
   const [activeId, setActiveId] = useState<string>(openTabIds[0] ?? "");
@@ -338,7 +338,7 @@ function useConversations(workspaceId: string) {
       setActiveId((cur) => {
         if (cur !== id) return cur;
         const idx = prev.indexOf(id);
-        return next[Math.max(0, idx - 1)];
+        return next[Math.max(0, idx - 1)] ?? "";
       });
       return next;
     });
@@ -456,6 +456,8 @@ function TabBar({
   onClose,
   onCreate,
   onToggleHistory,
+  streamingConvIds,
+  unreadConvIds,
 }: {
   tabs: Conversation[];
   activeId: string;
@@ -463,6 +465,8 @@ function TabBar({
   onClose: (id: string) => void;
   onCreate: () => void;
   onToggleHistory: () => void;
+  streamingConvIds: Set<string>;
+  unreadConvIds: Set<string>;
 }) {
   return (
     <div className="flex items-stretch border-b border-border/60 bg-background/20 min-h-[38px]">
@@ -470,6 +474,8 @@ function TabBar({
       <div className="flex flex-1 items-stretch overflow-x-auto" style={{ scrollbarWidth: "none" }}>
         {tabs.map((tab) => {
           const isActive = tab.id === activeId;
+          const isStreaming = streamingConvIds.has(tab.id);
+          const isUnread = !isActive && unreadConvIds.has(tab.id);
           return (
             <button
               key={tab.id}
@@ -483,6 +489,17 @@ function TabBar({
             >
               <SparkleIcon className="h-3 w-3 flex-shrink-0 opacity-70" />
               <span className="truncate">{tab.title}</span>
+
+              {/* Status dot — streaming (blink) or unread (yellow), hidden on active */}
+              {!isActive && (isStreaming || isUnread) && (
+                <span
+                  className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+                    isStreaming
+                      ? "bg-muted-foreground/60 animate-pulse"
+                      : "bg-yellow-400"
+                  }`}
+                />
+              )}
 
               {/* Close button — only on hover, only if more than one tab */}
               {tabs.length > 1 && (
@@ -631,8 +648,19 @@ export function WorkspaceChatView() {
 
   const conv = useConversations(workspaceId);
 
+  // ── Stable refs for WS handler (avoids re-registering on every render) ───────
+  const activeConvIdRef = useRef(conv.activeId);
+  const convMethodsRef = useRef(conv);
+  // Update every render — no deps, runs after every render synchronously
+  activeConvIdRef.current = conv.activeId;
+  convMethodsRef.current = conv;
+
   const [input, setInput] = useState("");
   const [streamingIds, setStreamingIds] = useState<Set<string>>(new Set());
+  // convId → streaming in progress
+  const [streamingConvIds, setStreamingConvIds] = useState<Set<string>>(new Set());
+  // convId → agent replied but tab not yet visited
+  const [unreadConvIds, setUnreadConvIds] = useState<Set<string>>(new Set());
   const [planItems, setPlanItems] = useState<ProposedPlanIssue[] | null>(null);
   const [planItemState, setPlanItemState] = useState<Record<string, "loading" | "done">>({});
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
@@ -658,12 +686,15 @@ export function WorkspaceChatView() {
     bottomRef.current?.scrollIntoView({ behavior });
   }, [conv.activeConversation?.messages.length]);
 
-  // When the active tab changes, reset mounted state so the next render jumps instantly
+  // When active tab changes: reset scroll flag + clear its unread dot
   useEffect(() => {
     mountedRef.current = false;
+    setUnreadConvIds((prev) => { const n = new Set(prev); n.delete(conv.activeId); return n; });
   }, [conv.activeId]);
 
-  // WebSocket streaming
+  // WebSocket streaming — only registers once per wsClient.
+  // Uses refs for conv callbacks + activeId to always have fresh values without
+  // re-registering the listener on every state update (which caused dropped events).
   useEffect(() => {
     if (!wsClient) return;
     const off = wsClient.on("chat:stream", (e) => {
@@ -681,20 +712,24 @@ export function WorkspaceChatView() {
       const sid = p.stream_id;
       const kind = p.kind ?? "text";
       const convId = streamConvMapRef.current[sid];
+      const c = convMethodsRef.current;
 
       if (p.done) {
         if (convId) {
-          conv.finalizeStreamMessage(convId, sid);
+          c.finalizeStreamMessage(convId, sid);
           delete streamConvMapRef.current[sid];
           delete streamBufRef.current[sid];
+          setStreamingConvIds((prev) => { const n = new Set(prev); n.delete(convId); return n; });
+          if (convId !== activeConvIdRef.current) {
+            setUnreadConvIds((prev) => new Set(prev).add(convId));
+          }
         }
         setStreamingIds((prev) => { const next = new Set(prev); next.delete(sid); return next; });
         return;
       }
 
       if (kind === "tool_use" && p.call_id && convId) {
-        // Add a pending tool call message
-        conv.addMessage(convId, {
+        c.addMessage(convId, {
           id: `tool_${p.call_id}`,
           role: "tool_use",
           content: "",
@@ -707,27 +742,29 @@ export function WorkspaceChatView() {
       }
 
       if (kind === "tool_result" && p.call_id && convId) {
-        // Update the matching tool_use message with its result
-        conv.resolveToolCall(convId, p.call_id, p.output ?? "");
+        c.resolveToolCall(convId, p.call_id, p.output ?? "");
         return;
       }
 
       if (kind === "thinking" && p.delta && convId) {
-        conv.upsertThinkingMessage(convId, sid, (streamBufRef.current[`think_${sid}`] ?? "") + p.delta);
-        streamBufRef.current[`think_${sid}`] = (streamBufRef.current[`think_${sid}`] ?? "") + p.delta;
+        const thinkKey = `think_${sid}`;
+        streamBufRef.current[thinkKey] = (streamBufRef.current[thinkKey] ?? "") + p.delta;
+        c.upsertThinkingMessage(convId, sid, streamBufRef.current[thinkKey]);
         return;
       }
 
       if ((kind === "text" || kind === undefined) && p.delta) {
         streamBufRef.current[sid] = (streamBufRef.current[sid] ?? "") + p.delta;
         if (convId) {
-          conv.upsertStreamMessage(convId, sid, streamBufRef.current[sid]);
+          c.upsertStreamMessage(convId, sid, streamBufRef.current[sid]);
+          setStreamingConvIds((prev) => new Set(prev).add(convId));
         }
         setStreamingIds((prev) => new Set(prev).add(sid));
       }
     });
     return off;
-  }, [wsClient, conv]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsClient]);
 
   // Cmd+N → new chat tab
   useEffect(() => {
@@ -855,10 +892,15 @@ export function WorkspaceChatView() {
       <TabBar
         tabs={conv.openTabs}
         activeId={conv.activeId}
-        onSelect={conv.setActiveId}
+        onSelect={(id) => {
+          conv.setActiveId(id);
+          setUnreadConvIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+        }}
         onClose={conv.closeTab}
         onCreate={conv.createTab}
         onToggleHistory={() => setShowHistory((s) => !s)}
+        streamingConvIds={streamingConvIds}
+        unreadConvIds={unreadConvIds}
       />
 
       {/* ── Messages ────────────────────────────────────────────────────────── */}
