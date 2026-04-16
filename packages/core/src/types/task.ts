@@ -24,6 +24,8 @@ export interface TaskMessage {
   content: string;
   kind: "text" | "tool" | "status";
   tool?: string;
+  /** Present when emitted by server — use for cache keys when UI workspace differs from event workspace. */
+  workspace_id?: string;
 }
 
 /** WS payload for task:stage events */
@@ -34,4 +36,5 @@ export interface TaskStageEvent {
   output?: string;
   session_id?: string;
   error?: string;
+  workspace_id?: string;
 }

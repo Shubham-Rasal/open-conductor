@@ -5,6 +5,10 @@ import remarkGfm from "remark-gfm";
 import {
   workspaceMessagesOptions,
   usePostWorkspaceMessage,
+  useWorkspaceConversations,
+  useConvStore,
+  type ConvMessage,
+  type Conversation,
 } from "@open-conductor/core/chat";
 import { useCreateIssue } from "@open-conductor/core/issues";
 import { useCoreContext } from "@open-conductor/core/platform";
@@ -338,213 +342,6 @@ function groupMessages(messages: ConvMessage[]): MsgSegment[] {
   return segments;
 }
 
-// ── Conversation types & storage ──────────────────────────────────────────────
-
-interface ConvMessage {
-  id: string;
-  role: "user" | "assistant" | "tool_use" | "tool_result" | "thinking" | "plan_proposal";
-  content: string;
-  createdAt: string;
-  // tool call fields
-  tool?: string;
-  callId?: string;
-  toolInput?: string;
-  toolOutput?: string;
-  // plan proposal fields
-  planItems?: ProposedPlanIssue[];
-}
-
-interface Conversation {
-  id: string;
-  title: string;
-  createdAt: string;
-  messages: ConvMessage[];
-}
-
-function makeConversation(): Conversation {
-  return {
-    id: Math.random().toString(36).slice(2),
-    title: "New chat",
-    createdAt: new Date().toISOString(),
-    messages: [],
-  };
-}
-
-function useConversations(workspaceId: string) {
-  const storeKey = `oc_convs_${workspaceId}`;
-  const tabsKey = `oc_tabs_${workspaceId}`;
-
-  const [conversations, setConversations] = useState<Conversation[]>(() => {
-    try {
-      const raw = localStorage.getItem(storeKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Conversation[];
-        if (parsed.length > 0) return parsed;
-      }
-    } catch { /* ignore */ }
-    return [makeConversation()];
-  });
-
-  const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem(tabsKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as string[];
-        if (parsed.length > 0) return parsed;
-      }
-    } catch { /* ignore */ }
-    return conversations[0] ? [conversations[0].id] : [];
-  });
-
-  const [activeId, setActiveId] = useState<string>(openTabIds[0] ?? "");
-
-  useEffect(() => {
-    try { localStorage.setItem(storeKey, JSON.stringify(conversations)); } catch { /* ignore */ }
-  }, [conversations, storeKey]);
-
-  useEffect(() => {
-    try { localStorage.setItem(tabsKey, JSON.stringify(openTabIds)); } catch { /* ignore */ }
-  }, [openTabIds, tabsKey]);
-
-  const openTabs = useMemo(
-    () => openTabIds.map((id) => conversations.find((c) => c.id === id)).filter(Boolean) as Conversation[],
-    [openTabIds, conversations]
-  );
-
-  const activeConversation = useMemo(
-    () => conversations.find((c) => c.id === activeId) ?? null,
-    [conversations, activeId]
-  );
-
-  const createTab = useCallback(() => {
-    const conv = makeConversation();
-    setConversations((prev) => [...prev, conv]);
-    setOpenTabIds((prev) => [...prev, conv.id]);
-    setActiveId(conv.id);
-    return conv.id;
-  }, []);
-
-  const closeTab = useCallback((id: string) => {
-    setOpenTabIds((prev) => {
-      const next = prev.filter((tid) => tid !== id);
-      if (next.length === 0) {
-        const newConv = makeConversation();
-        setConversations((cs) => [...cs, newConv]);
-        setActiveId(newConv.id);
-        return [newConv.id];
-      }
-      setActiveId((cur) => {
-        if (cur !== id) return cur;
-        const idx = prev.indexOf(id);
-        return next[Math.max(0, idx - 1)] ?? "";
-      });
-      return next;
-    });
-  }, []);
-
-  const openFromHistory = useCallback((id: string) => {
-    setOpenTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
-    setActiveId(id);
-  }, []);
-
-  const addMessage = useCallback((convId: string, msg: ConvMessage) => {
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id !== convId) return c;
-        const title =
-          c.messages.length === 0 && msg.role === "user"
-            ? msg.content.slice(0, 42) + (msg.content.length > 42 ? "…" : "")
-            : c.title;
-        return { ...c, title, messages: [...c.messages, msg] };
-      })
-    );
-  }, []);
-
-  const upsertStreamMessage = useCallback((convId: string, streamId: string, content: string) => {
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id !== convId) return c;
-        const exists = c.messages.some((m) => m.id === `stream_${streamId}`);
-        if (exists) {
-          return {
-            ...c,
-            messages: c.messages.map((m) =>
-              m.id === `stream_${streamId}` ? { ...m, content } : m
-            ),
-          };
-        }
-        return {
-          ...c,
-          messages: [
-            ...c.messages,
-            { id: `stream_${streamId}`, role: "assistant", content, createdAt: new Date().toISOString() },
-          ],
-        };
-      })
-    );
-  }, []);
-
-  const finalizeStreamMessage = useCallback((convId: string, streamId: string) => {
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id !== convId) return c;
-        return {
-          ...c,
-          messages: c.messages.map((m) =>
-            m.id === `stream_${streamId}` ? { ...m, id: `done_${streamId}` } : m
-          ),
-        };
-      })
-    );
-  }, []);
-
-  const resolveToolCall = useCallback((convId: string, callId: string, output: string) => {
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id !== convId) return c;
-        return {
-          ...c,
-          messages: c.messages.map((m) =>
-            m.id === `tool_${callId}` ? { ...m, toolOutput: output } : m
-          ),
-        };
-      })
-    );
-  }, []);
-
-  const upsertThinkingMessage = useCallback((convId: string, streamId: string, content: string) => {
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id !== convId) return c;
-        const exists = c.messages.some((m) => m.id === `think_${streamId}`);
-        if (exists) {
-          return { ...c, messages: c.messages.map((m) => m.id === `think_${streamId}` ? { ...m, content } : m) };
-        }
-        return {
-          ...c,
-          messages: [...c.messages, { id: `think_${streamId}`, role: "thinking" as const, content, createdAt: new Date().toISOString() }],
-        };
-      })
-    );
-  }, []);
-
-  return {
-    conversations,
-    openTabs,
-    activeId,
-    activeConversation,
-    setActiveId,
-    createTab,
-    closeTab,
-    openFromHistory,
-    addMessage,
-    upsertStreamMessage,
-    finalizeStreamMessage,
-    resolveToolCall,
-    upsertThinkingMessage,
-  };
-}
-
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
 function TabBar({
@@ -847,13 +644,11 @@ interface AttachedImage {
 // ── Main view ─────────────────────────────────────────────────────────────────
 
 export function WorkspaceChatView() {
-  const { apiClient, workspaceId, wsClient } = useCoreContext();
+  const { apiClient, workspaceId } = useCoreContext();
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const agentPickerRef = useRef<HTMLDivElement>(null);
-  const streamConvMapRef = useRef<Record<string, string>>({});
-  const streamBufRef = useRef<Record<string, string>>({});
 
   // Seed from API on first load (read-only reference, not for display)
   useQuery(workspaceMessagesOptions(apiClient, workspaceId));
@@ -862,21 +657,10 @@ export function WorkspaceChatView() {
   const postMsg = usePostWorkspaceMessage();
   const createIssue = useCreateIssue();
 
-  const conv = useConversations(workspaceId);
-
-  // ── Stable refs for WS handler (avoids re-registering on every render) ───────
-  const activeConvIdRef = useRef(conv.activeId);
-  const convMethodsRef = useRef(conv);
-  // Update every render — no deps, runs after every render synchronously
-  activeConvIdRef.current = conv.activeId;
-  convMethodsRef.current = conv;
+  const conv = useWorkspaceConversations(workspaceId);
+  const { streamingIds, streamingConvIds, unreadConvIds } = conv;
 
   const [input, setInput] = useState("");
-  const [streamingIds, setStreamingIds] = useState<Set<string>>(new Set());
-  // convId → streaming in progress
-  const [streamingConvIds, setStreamingConvIds] = useState<Set<string>>(new Set());
-  // convId → agent replied but tab not yet visited
-  const [unreadConvIds, setUnreadConvIds] = useState<Set<string>>(new Set());
   // per-tab pending state — replaces global mutation isPending
   const [pendingConvIds, setPendingConvIds] = useState<Set<string>>(new Set());
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
@@ -902,97 +686,10 @@ export function WorkspaceChatView() {
     bottomRef.current?.scrollIntoView({ behavior });
   }, [conv.activeConversation?.messages.length]);
 
-  // When active tab changes: reset scroll flag + clear its unread dot
+  // When active tab changes: reset scroll flag
   useEffect(() => {
     mountedRef.current = false;
-    setUnreadConvIds((prev) => { const n = new Set(prev); n.delete(conv.activeId); return n; });
   }, [conv.activeId]);
-
-  // WebSocket streaming — only registers once per wsClient.
-  // Uses refs for conv callbacks + activeId to always have fresh values without
-  // re-registering the listener on every state update (which caused dropped events).
-  useEffect(() => {
-    if (!wsClient) return;
-    const off = wsClient.on("chat:stream", (e) => {
-      const p = e.payload as {
-        stream_id?: string;
-        kind?: "text" | "tool_use" | "tool_result" | "thinking" | "plan_proposal";
-        delta?: string;
-        done?: boolean;
-        tool?: string;
-        call_id?: string;
-        input?: string;
-        output?: string;
-        issues?: ProposedPlanIssue[];
-      };
-      if (!p.stream_id) return;
-      const sid = p.stream_id;
-      const kind = p.kind ?? "text";
-      const convId = streamConvMapRef.current[sid];
-      const c = convMethodsRef.current;
-
-      if (p.done) {
-        if (convId) {
-          c.finalizeStreamMessage(convId, sid);
-          delete streamConvMapRef.current[sid];
-          delete streamBufRef.current[sid];
-          setStreamingConvIds((prev) => { const n = new Set(prev); n.delete(convId); return n; });
-          if (convId !== activeConvIdRef.current) {
-            setUnreadConvIds((prev) => new Set(prev).add(convId));
-          }
-        }
-        setStreamingIds((prev) => { const next = new Set(prev); next.delete(sid); return next; });
-        return;
-      }
-
-      if (kind === "plan_proposal" && p.issues?.length && convId) {
-        c.addMessage(convId, {
-          id: `plan_${Date.now()}`,
-          role: "plan_proposal",
-          content: "",
-          createdAt: new Date().toISOString(),
-          planItems: p.issues,
-        });
-        return;
-      }
-
-      if (kind === "tool_use" && p.call_id && convId) {
-        c.addMessage(convId, {
-          id: `tool_${p.call_id}`,
-          role: "tool_use",
-          content: "",
-          createdAt: new Date().toISOString(),
-          tool: p.tool,
-          callId: p.call_id,
-          toolInput: p.input,
-        });
-        return;
-      }
-
-      if (kind === "tool_result" && p.call_id && convId) {
-        c.resolveToolCall(convId, p.call_id, p.output ?? "");
-        return;
-      }
-
-      if (kind === "thinking" && p.delta && convId) {
-        const thinkKey = `think_${sid}`;
-        streamBufRef.current[thinkKey] = (streamBufRef.current[thinkKey] ?? "") + p.delta;
-        c.upsertThinkingMessage(convId, sid, streamBufRef.current[thinkKey]);
-        return;
-      }
-
-      if ((kind === "text" || kind === undefined) && p.delta) {
-        streamBufRef.current[sid] = (streamBufRef.current[sid] ?? "") + p.delta;
-        if (convId) {
-          c.upsertStreamMessage(convId, sid, streamBufRef.current[sid]);
-          setStreamingConvIds((prev) => new Set(prev).add(convId));
-        }
-        setStreamingIds((prev) => new Set(prev).add(sid));
-      }
-    });
-    return off;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsClient]);
 
   // Cmd+N → new chat tab
   useEffect(() => {
@@ -1099,7 +796,7 @@ export function WorkspaceChatView() {
         history: history.length > 0 ? history : undefined,
       });
       if (result.stream_id) {
-        streamConvMapRef.current[result.stream_id] = convId;
+        useConvStore.getState().registerChatStream(workspaceId, result.stream_id, convId);
       }
     } finally {
       setPendingConvIds((prev) => { const n = new Set(prev); n.delete(convId); return n; });
@@ -1128,7 +825,6 @@ export function WorkspaceChatView() {
         activeId={conv.activeId}
         onSelect={(id) => {
           conv.setActiveId(id);
-          setUnreadConvIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
         }}
         onClose={conv.closeTab}
         onCreate={conv.createTab}

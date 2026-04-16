@@ -224,11 +224,13 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		}
 	}()
 
+	wsIDStr := uuidStr(r.workspaceID)
 	r.setIssueStatus(ctx, task, "in_progress")
 	r.broadcastEvent("task:stage", map[string]any{
-		"task_id":  taskIDStr,
-		"issue_id": issueIDStr,
-		"stage":    "dispatched",
+		"task_id":      taskIDStr,
+		"issue_id":     issueIDStr,
+		"workspace_id": wsIDStr,
+		"stage":        "dispatched",
 	})
 
 	wsRow, wsErr := r.q.GetWorkspace(ctx, r.workspaceID)
@@ -289,9 +291,10 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 
 	_, _ = r.q.StartTask(ctx, task.ID)
 	r.broadcastEvent("task:stage", map[string]any{
-		"task_id":  taskIDStr,
-		"issue_id": issueIDStr,
-		"stage":    "running",
+		"task_id":      taskIDStr,
+		"issue_id":     issueIDStr,
+		"workspace_id": wsIDStr,
+		"stage":        "running",
 	})
 	slog.Info("task running", "task_id", taskIDStr)
 
@@ -300,26 +303,29 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		case agentpkg.MessageText:
 			if msg.Content != "" {
 				r.broadcastEvent("task:message", map[string]any{
-					"task_id":  taskIDStr,
-					"issue_id": issueIDStr,
-					"content":  msg.Content,
-					"kind":     "text",
+					"task_id":      taskIDStr,
+					"issue_id":     issueIDStr,
+					"workspace_id": wsIDStr,
+					"content":      msg.Content,
+					"kind":         "text",
 				})
 			}
 		case agentpkg.MessageToolUse:
 			r.broadcastEvent("task:message", map[string]any{
-				"task_id":  taskIDStr,
-				"issue_id": issueIDStr,
-				"content":  fmt.Sprintf("Using tool: %s", msg.Tool),
-				"kind":     "tool",
-				"tool":     msg.Tool,
+				"task_id":      taskIDStr,
+				"issue_id":     issueIDStr,
+				"workspace_id": wsIDStr,
+				"content":      fmt.Sprintf("Using tool: %s", msg.Tool),
+				"kind":         "tool",
+				"tool":         msg.Tool,
 			})
 		case agentpkg.MessageStatus:
 			r.broadcastEvent("task:message", map[string]any{
-				"task_id":  taskIDStr,
-				"issue_id": issueIDStr,
-				"content":  msg.Status,
-				"kind":     "status",
+				"task_id":      taskIDStr,
+				"issue_id":     issueIDStr,
+				"workspace_id": wsIDStr,
+				"content":      msg.Status,
+				"kind":         "status",
 			})
 		}
 	}
@@ -339,11 +345,12 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		})
 		r.setIssueStatus(ctx, task, "in_review")
 		r.broadcastEvent("task:stage", map[string]any{
-			"task_id":    taskIDStr,
-			"issue_id":   issueIDStr,
-			"stage":      "completed",
-			"session_id": sessionID,
-			"output":     output,
+			"task_id":      taskIDStr,
+			"issue_id":     issueIDStr,
+			"workspace_id": wsIDStr,
+			"stage":        "completed",
+			"session_id":   sessionID,
+			"output":       output,
 		})
 		slog.Info("task completed", "task_id", taskIDStr, "session_id", sessionID)
 	} else {
@@ -359,10 +366,11 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 func (r *Runner) failTask(ctx context.Context, taskID pgtype.UUID, issueIDStr string, errMsg string) {
 	_, _ = r.q.FailTask(ctx, db.FailTaskParams{ID: taskID, ErrorMessage: &errMsg})
 	r.broadcastEvent("task:stage", map[string]any{
-		"task_id":  uuidStr(taskID),
-		"issue_id": issueIDStr,
-		"stage":    "failed",
-		"error":    errMsg,
+		"task_id":      uuidStr(taskID),
+		"issue_id":     issueIDStr,
+		"workspace_id": uuidStr(r.workspaceID),
+		"stage":        "failed",
+		"error":        errMsg,
 	})
 	slog.Error("task failed", "task_id", uuidStr(taskID), "error", errMsg)
 }

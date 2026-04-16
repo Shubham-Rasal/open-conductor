@@ -6,6 +6,7 @@ import { useAuthStore } from "../auth/store";
 import { onIssueCreated, onIssueUpdated, onIssueDeleted, issueKeys } from "../issues";
 import { agentKeys, type ListAgentsResponse } from "../agents";
 import { chatKeys } from "../chat/queries";
+import { useConvStore, type ChatStreamPayload } from "../chat/convStore";
 import { workspaceListOptions } from "../workspaces/queries";
 import { useWorkspaceStore } from "../workspaces/store";
 import type { Issue, Agent, AgentTask, TaskMessage, TaskStageEvent } from "../types";
@@ -45,31 +46,36 @@ interface CoreProviderProps {
 function WsEventBridge({ workspaceId }: { workspaceId: string }) {
   const { wsClient } = useCoreContext();
   const qc = useQueryClient();
+  const workspaceIdRef = useRef(workspaceId);
+  workspaceIdRef.current = workspaceId;
 
   useEffect(() => {
     wsClient.connect();
 
+    const wid = () => workspaceIdRef.current;
+
     // ── Issue events ──────────────────────────────────────────────────────
     const offCreated = wsClient.on("issue:created", (e) => {
-      onIssueCreated(qc, workspaceId, e.payload as Issue);
+      onIssueCreated(qc, wid(), e.payload as Issue);
     });
     const offUpdated = wsClient.on("issue:updated", (e) => {
-      onIssueUpdated(qc, workspaceId, e.payload as Issue);
+      onIssueUpdated(qc, wid(), e.payload as Issue);
     });
     const offDeleted = wsClient.on("issue:deleted", (e) => {
       const { id } = e.payload as { id: string };
-      onIssueDeleted(qc, workspaceId, id);
+      onIssueDeleted(qc, wid(), id);
     });
 
     // ── Task stage transitions ─────────────────────────────────────────────
     const offTaskStage = wsClient.on("task:stage", (e) => {
       const evt = e.payload as TaskStageEvent;
       if (!evt.issue_id) return;
+      const ws = evt.workspace_id ?? wid();
 
-      qc.invalidateQueries({ queryKey: issueKeys.tasks(workspaceId, evt.issue_id) });
+      qc.invalidateQueries({ queryKey: issueKeys.tasks(ws, evt.issue_id) });
 
       qc.setQueriesData<AgentTask[]>(
-        { queryKey: issueKeys.tasks(workspaceId, evt.issue_id) },
+        { queryKey: issueKeys.tasks(ws, evt.issue_id) },
         (old) => {
           if (!old) return old;
           return old.map((t) =>
@@ -107,7 +113,7 @@ function WsEventBridge({ workspaceId }: { workspaceId: string }) {
     const offAgentStatus = wsClient.on("agent:status", (e) => {
       const { agent_id, status } = e.payload as { agent_id: string; status: string };
       qc.setQueriesData<Agent[]>(
-        { queryKey: agentKeys.list(workspaceId) },
+        { queryKey: agentKeys.list(wid()) },
         (old) => {
           if (!old) return old;
           return old.map((a) =>
@@ -118,12 +124,14 @@ function WsEventBridge({ workspaceId }: { workspaceId: string }) {
     });
 
     const offChatMsg = wsClient.on("chat:message", () => {
-      void qc.invalidateQueries({ queryKey: chatKeys.messages(workspaceId) });
+      void qc.invalidateQueries({ queryKey: chatKeys.messages(wid()) });
     });
     const offChatStream = wsClient.on("chat:stream", (e) => {
-      const p = e.payload as { workspace_id?: string; done?: boolean };
+      const p = e.payload as ChatStreamPayload;
+      useConvStore.getState().applyChatStreamEvent(p);
       if (p.done) {
-        void qc.invalidateQueries({ queryKey: chatKeys.messages(workspaceId) });
+        const inv = p.workspace_id ?? wid();
+        void qc.invalidateQueries({ queryKey: chatKeys.messages(inv) });
       }
     });
 
@@ -136,9 +144,14 @@ function WsEventBridge({ workspaceId }: { workspaceId: string }) {
       offAgentStatus();
       offChatMsg();
       offChatStream();
+    };
+  }, [wsClient, qc]);
+
+  useEffect(() => {
+    return () => {
       wsClient.disconnect();
     };
-  }, [wsClient, qc, workspaceId]);
+  }, [wsClient]);
 
   return null;
 }
