@@ -2,7 +2,7 @@
 
 Open Conductor is a desktop app for managed local agent swarms.
 
-![Open Conductor desktop app — chat workspace with planning, backlog, and agent controls](docs/images/desktop-chat.png)
+<img width="1512" height="950" alt="image" src="https://github.com/user-attachments/assets/e9ee193a-d24a-4b7c-a8fd-1c22201f3cb4" />
 
 ## Repository layout
 
