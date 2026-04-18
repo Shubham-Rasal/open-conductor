@@ -1,7 +1,7 @@
 import { HashRouter, Routes, Route, Navigate, Outlet, useParams, useLocation } from "react-router-dom";
 import { CoreProvider } from "@open-conductor/core/platform";
 import { NavigationProvider } from "./platform/NavigationProvider";
-import { DashboardGuard, DesktopAppSidebar } from "@open-conductor/views/layout";
+import { DashboardGuard, DesktopAppSidebar, OpenConductorLogo } from "@open-conductor/views/layout";
 import { IssueListView, IssueDetailView } from "@open-conductor/views/issues";
 import { AgentListView } from "@open-conductor/views/agents";
 import {
@@ -34,9 +34,13 @@ function DashboardLayout() {
           aria-hidden
         />
         <div
-          className={`drag-region relative z-10 h-10 w-full shrink-0 bg-background dark:bg-background ${isMac ? "pl-[78px]" : ""}`}
-          aria-hidden
-        />
+          className={`drag-region relative z-10 flex h-10 w-full shrink-0 items-center gap-2 bg-background dark:bg-background ${isMac ? "pl-[78px]" : "pl-3"}`}
+        >
+          <OpenConductorLogo size={18} className="opacity-95" />
+          <span className="pointer-events-none select-none text-[13px] font-medium tracking-tight text-muted-foreground/45">
+            Open Conductor
+          </span>
+        </div>
         {settingsFullScreen ? (
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background/95 dark:bg-background/90">
             <Outlet />

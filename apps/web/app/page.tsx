@@ -37,7 +37,14 @@ export default async function Home() {
       {/* ── Nav ──────────────────────────────────────────── */}
       <header className={styles.nav}>
         <Link href="/" className={styles.navLogo}>
-          <span className={styles.navLogoMark}>◆</span>
+          <Image
+            src="/oc-logo.png"
+            alt=""
+            width={28}
+            height={28}
+            className={styles.navLogoImg}
+            priority
+          />
           Open Conductor
         </Link>
         <nav className={styles.navLinks}>
@@ -199,7 +206,7 @@ export default async function Home() {
       <footer className={styles.footer}>
         <div className={styles.footerLeft}>
           <span className={styles.footerLogo}>
-            <span className={styles.navLogoMark}>◆</span>
+            <Image src="/oc-logo.png" alt="" width={22} height={22} className={styles.footerLogoImg} />
             Open Conductor
           </span>
           <span className={styles.footerSep}>·</span>

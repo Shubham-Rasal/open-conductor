@@ -4,19 +4,20 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   workspaceMessagesOptions,
+  agentModelsOptions,
   usePostWorkspaceMessage,
   useCancelWorkspaceChatStream,
   useEnqueueOrchestratorBulk,
   useWorkspaceConversations,
   useConvStore,
   getActiveStreamIdForConversation,
+  inferChatAgentProviderForModels,
   type ConvMessage,
   type Conversation,
 } from "@open-conductor/core/chat";
 import { useCreateIssue } from "@open-conductor/core/issues";
 import { useCoreContext } from "@open-conductor/core/platform";
 import { agentListOptions, useUpdateAgent } from "@open-conductor/core/agents";
-import { inferChatAgentProvider, presetsForProvider } from "@open-conductor/core/chat";
 import type { Agent, ProposedPlanIssue, ProposedTask, TaskStatus, TaskStageEvent } from "@open-conductor/core/types";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -357,6 +358,7 @@ function TabBar({
   onToggleHistory,
   streamingConvIds,
   unreadConvIds,
+  busy,
 }: {
   tabs: Conversation[];
   activeId: string;
@@ -366,9 +368,20 @@ function TabBar({
   onToggleHistory: () => void;
   streamingConvIds: Set<string>;
   unreadConvIds: Set<string>;
+  busy?: boolean;
 }) {
   return (
-    <div className="flex items-stretch border-b border-border/60 bg-background/20 min-h-[38px]">
+    <div className="relative flex items-stretch border-b border-border/60 bg-background/20 min-h-[38px]">
+      {/* Subtle progress bar pinned to the bottom border — only when planning */}
+      {busy && (
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 right-0 h-[2px] overflow-hidden"
+          role="progressbar"
+          aria-busy="true"
+        >
+          <div className="oc-chat-progress-bar absolute inset-y-0 w-[40%] bg-primary/50" />
+        </div>
+      )}
       {/* Scrollable tab list */}
       <div className="flex flex-1 items-stretch overflow-x-auto" style={{ scrollbarWidth: "none" }}>
         {tabs.map((tab) => {
@@ -926,9 +939,8 @@ export function WorkspaceChatView() {
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [mode, setMode] = useState<"plan" | "execute">("plan");
-  /** Model id for planning chat (synced from agent row; editable without waiting for refetch). */
+  /** Model id for planning chat (synced from agent row; chosen from detected CLI models). */
   const [planChatModel, setPlanChatModel] = useState("");
-  const [planChatModelCustom, setPlanChatModelCustom] = useState(false);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -990,21 +1002,36 @@ export function WorkspaceChatView() {
   }, [mode, agents]);
 
   const selectedAgent = (agents as Agent[]).find((a) => a.id === selectedAgentId) ?? null;
-  const selectedProvider = selectedAgent ? inferChatAgentProvider(selectedAgent) : null;
-  const modelPresets = presetsForProvider(selectedProvider);
+  const providerForModels = selectedAgent ? inferChatAgentProviderForModels(selectedAgent) : null;
+
+  const { data: fetchedModels = [], isLoading: modelsLoading } = useQuery(
+    agentModelsOptions(apiClient, providerForModels)
+  );
+
+  const modelChoices = useMemo(
+    () => fetchedModels.map((m) => ({ value: m.id, label: m.label?.trim() || m.id })),
+    [fetchedModels]
+  );
+
+  /** Ensure the agent's saved model appears in the dropdown even if the list just updated. */
+  const modelSelectOptions = useMemo(() => {
+    const cur = (selectedAgent?.model ?? planChatModel ?? "").trim();
+    const byId = new Map(modelChoices.map((x) => [x.value, x] as const));
+    if (cur && !byId.has(cur)) {
+      return [{ value: cur, label: cur }, ...modelChoices];
+    }
+    return modelChoices;
+  }, [modelChoices, selectedAgent?.model, planChatModel]);
 
   // Keep composer model string aligned with the agent row when switching agents or after API updates.
   useEffect(() => {
     if (!selectedAgentId || !selectedAgent) {
       setPlanChatModel("");
-      setPlanChatModelCustom(false);
       return;
     }
     const m = selectedAgent.model?.trim() ?? "";
     setPlanChatModel(m);
-    const presetVals = new Set(presetsForProvider(selectedProvider).map((p) => p.value));
-    setPlanChatModelCustom(m !== "" && !presetVals.has(m));
-  }, [selectedAgentId, selectedAgent, selectedProvider]);
+  }, [selectedAgentId, selectedAgent?.id, selectedAgent?.model]);
 
   const persistPlanChatModel = useCallback(
     async (next: string) => {
@@ -1143,36 +1170,8 @@ export function WorkspaceChatView() {
         onToggleHistory={() => setShowHistory((s) => !s)}
         streamingConvIds={streamingConvIds}
         unreadConvIds={unreadConvIds}
+        busy={planAssistantBusy}
       />
-
-      {planAssistantBusy && (
-        <div className="flex shrink-0 items-center gap-3 border-b border-border/50 bg-canvas/90 px-4 py-2">
-          <div
-            className="relative h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-            aria-busy="true"
-            aria-valuetext={waitingPost && !streamingHere ? "Starting assistant" : "Assistant is planning"}
-          >
-            <div className="oc-chat-progress-bar absolute inset-y-0 w-[42%] rounded-full bg-primary shadow-sm shadow-primary/20" />
-          </div>
-          <span className="hidden text-[11px] text-muted-foreground sm:inline">
-            {waitingPost && !streamingHere ? "Starting…" : "Planning…"}
-          </span>
-          <button
-            type="button"
-            onClick={() => void handleStopPlanChat()}
-            disabled={!activeStreamId || cancelChat.isPending}
-            title={
-              !activeStreamId
-                ? "Connecting to assistant…"
-                : "Stop generating"
-            }
-            className="shrink-0 rounded-md border border-border/80 bg-background px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Stop
-          </button>
-        </div>
-      )}
 
       {/* ── Messages ────────────────────────────────────────────────────────── */}
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
@@ -1234,15 +1233,20 @@ export function WorkspaceChatView() {
               );
             }
 
+            const isUser = m.role === "user";
+            const userPlanBubble = isUser && mode === "plan";
+
             return (
               <div
                 key={m.id}
-                className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex ${isUser ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[75%] rounded-xl px-4 py-3 text-sm text-foreground ${
-                    m.role === "user" ? "bg-card/90" : ""
-                  }`}
+                  className={
+                    userPlanBubble
+                      ? "max-w-[min(85%,20rem)] rounded-lg bg-card/90 px-2.5 py-1.5 text-[13px] leading-snug text-foreground"
+                      : `max-w-[75%] rounded-xl px-4 py-3 text-sm text-foreground ${isUser ? "bg-card/90" : ""}`
+                  }
                 >
                   <MarkdownContent content={m.content} streaming={isStreaming} />
                 </div>
@@ -1398,76 +1402,34 @@ export function WorkspaceChatView() {
                   )}
                 </div>
 
-                {/* Model picker — Claude Code / Codex / OpenCode (persists on agent row) */}
-                {selectedAgent && (
+                {/* Model picker — options from server (CLI / APIs); persists on agent row */}
+                {selectedAgent && providerForModels && (
                   <div
                     className="flex min-w-0 flex-wrap items-center gap-1"
                     title="Model passed to the coding CLI for this chat"
                   >
-                    {modelPresets.length > 0 ? (
-                      <>
-                        <select
-                          aria-label="Assistant model"
-                          disabled={updateAgent.isPending}
-                          className="max-w-[128px] cursor-pointer rounded-md border border-border/60 bg-background px-2 py-[5px] text-[11px] text-foreground outline-none hover:bg-accent disabled:opacity-50 sm:max-w-[158px]"
-                          value={planChatModelCustom ? "__custom__" : planChatModel}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === "__custom__") {
-                              setPlanChatModelCustom(true);
-                              return;
-                            }
-                            setPlanChatModelCustom(false);
-                            void persistPlanChatModel(v);
-                          }}
-                        >
-                          <option value="">Default</option>
-                          {modelPresets.map((p) => (
-                            <option key={p.value} value={p.value}>
-                              {p.label}
-                            </option>
-                          ))}
-                          <option value="__custom__">Custom…</option>
-                        </select>
-                        {(planChatModelCustom ||
-                          (planChatModel !== "" &&
-                            !modelPresets.some((p) => p.value === planChatModel))) && (
-                          <input
-                            type="text"
-                            aria-label="Custom model id"
-                            value={planChatModel}
-                            onChange={(e) => setPlanChatModel(e.target.value)}
-                            onBlur={() => void persistPlanChatModel(planChatModel)}
-                            disabled={updateAgent.isPending}
-                            placeholder="model id"
-                            className="w-[min(160px,30vw)] min-w-0 rounded-md border border-border/60 bg-background px-2 py-[5px] font-mono text-[11px] text-foreground placeholder:text-muted-foreground/50"
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <input
-                        type="text"
-                        aria-label="Model id"
-                        value={planChatModel}
-                        onChange={(e) => setPlanChatModel(e.target.value)}
-                        onBlur={() => void persistPlanChatModel(planChatModel)}
-                        disabled={updateAgent.isPending}
-                        placeholder="Model (optional)"
-                        className="max-w-[min(200px,40vw)] min-w-[96px] rounded-md border border-border/60 bg-background px-2 py-[5px] font-mono text-[11px] text-foreground placeholder:text-muted-foreground/50"
-                      />
-                    )}
+                    <select
+                      aria-label="Assistant model"
+                      disabled={updateAgent.isPending || modelsLoading}
+                      className="max-w-[min(220px,55vw)] min-w-[120px] cursor-pointer rounded-md border border-border/60 bg-background px-2 py-[5px] text-[11px] text-foreground outline-none hover:bg-accent disabled:cursor-wait disabled:opacity-60"
+                      value={planChatModel}
+                      onChange={(e) => {
+                        void persistPlanChatModel(e.target.value);
+                      }}
+                    >
+                      <option value="">Default (CLI / config)</option>
+                      {modelSelectOptions.map((p) => (
+                        <option key={p.value} value={p.value}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
               </div>
 
               {/* Right */}
               <div className="flex items-center gap-1">
-                {showComposerSpinner && (
-                  <svg className="h-4 w-4 animate-spin text-muted-foreground" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                )}
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -1476,14 +1438,29 @@ export function WorkspaceChatView() {
                 >
                   <ImageAttachIcon className="h-[15px] w-[15px]" />
                 </button>
-                <button
-                  type="button"
-                  disabled={!canSend}
-                  onClick={() => void send()}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-25"
-                >
-                  <ArrowUpIcon className="h-3.5 w-3.5" />
-                </button>
+                {isAiResponding ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleStopPlanChat()}
+                    disabled={!activeStreamId || cancelChat.isPending}
+                    title="Stop generating"
+                    className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {/* Square stop icon */}
+                    <svg className="h-3 w-3" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+                      <rect x="2" y="2" width="8" height="8" rx="1.5" />
+                    </svg>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!canSend}
+                    onClick={() => void send()}
+                    className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-25"
+                  >
+                    <ArrowUpIcon className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           </div>

@@ -9,6 +9,7 @@ import {
   useDeleteWorkspace,
 } from "@open-conductor/core/workspaces";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
+import { OpenConductorLogo } from "./OpenConductorLogo";
 import { WorkspaceIdenticon } from "./WorkspaceIdenticon";
 import type { Workspace } from "@open-conductor/core/types";
 import { ocTransitionFast } from "../motion/presets";
@@ -26,25 +27,46 @@ function Icon({ d, className, children }: { d: string | ReactNode; className?: s
   );
 }
 
-function StatusDot({ ok, label }: { ok: boolean; label: string }) {
+/** Small stroke icons — match GitHub control in footer */
+function ServerGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="2" y="2" width="10" height="4" rx="0.75" />
+      <rect x="2" y="8" width="10" height="4" rx="0.75" />
+      <circle cx="4.25" cy="4" r="0.55" fill="currentColor" stroke="none" />
+      <circle cx="4.25" cy="10" r="0.55" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function DatabaseGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <ellipse cx="7" cy="3.25" rx="4" ry="1.6" />
+      <path d="M3 3.25v2.5c0 .88 1.79 1.6 4 1.6s4-.72 4-1.6v-2.5" />
+      <path d="M3 7.25v2.5c0 .88 1.79 1.6 4 1.6s4-.72 4-1.6v-2.5" />
+    </svg>
+  );
+}
+
+function ServiceStatus({ ok, title, children }: { ok: boolean; title: string; children: ReactNode }) {
+  const status = ok ? "Connected" : "Unavailable";
   return (
     <span
-      className="group relative flex items-center gap-1 cursor-default"
-      title={`${label}: ${ok ? "online" : "offline"}`}
+      className="flex items-center gap-1.5 rounded-md px-1 py-0.5 text-muted-foreground/55 transition-colors hover:text-muted-foreground/80"
+      title={`${title} — ${status}`}
     >
-      <span className="relative flex h-[7px] w-[7px]">
+      <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
         {ok && (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-55" />
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/35" />
         )}
         <span
-          className={`relative inline-flex h-[7px] w-[7px] rounded-full ${
-            ok ? "bg-emerald-500" : "bg-muted-foreground/30"
+          className={`relative h-1.5 w-1.5 rounded-full shadow-sm ${
+            ok ? "bg-emerald-500 shadow-emerald-500/40" : "bg-muted-foreground/35"
           }`}
         />
       </span>
-      <span className="text-[10px] font-medium text-muted-foreground/40 group-hover:text-muted-foreground/60 transition-colors">
-        {label === "Daemon" ? "D" : "DB"}
-      </span>
+      <span className="opacity-90">{children}</span>
     </span>
   );
 }
@@ -165,6 +187,12 @@ export function DesktopAppSidebar() {
       className="flex h-full w-[220px] flex-shrink-0 flex-col border-r border-black/[0.06] bg-sidebar/80 backdrop-blur-3xl backdrop-saturate-150 dark:border-white/[0.07]"
       aria-label="Open Conductor"
     >
+      {/* Brand */}
+      <div className="mx-3 mb-1 flex shrink-0 items-center gap-2 border-b border-black/[0.05] pb-3 pt-1 dark:border-white/[0.06]">
+        <OpenConductorLogo size={26} />
+        <span className="truncate text-[12px] font-semibold tracking-tight text-foreground/85">Open Conductor</span>
+      </div>
+
       {/* Workspace list */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-2">
         {deleteError && (
@@ -329,10 +357,18 @@ export function DesktopAppSidebar() {
           </svg>
         </button>
 
-        {/* Service status dots */}
-        <div className="flex items-center gap-2.5" aria-label="Service status">
-          <StatusDot ok={daemon} label="Daemon" />
-          <StatusDot ok={db} label="Database" />
+        {/* Service health — icon + live dot; tooltips for full labels */}
+        <div
+          className="flex min-w-0 items-center gap-0.5 rounded-lg border border-black/[0.06] bg-black/[0.03] px-1.5 py-1 dark:border-white/[0.06] dark:bg-white/[0.03]"
+          aria-label="Service status"
+        >
+          <ServiceStatus ok={daemon} title="Server">
+            <ServerGlyph className="h-[13px] w-[13px]" />
+          </ServiceStatus>
+          <span className="mx-0.5 h-3 w-px shrink-0 bg-border/60" aria-hidden />
+          <ServiceStatus ok={db} title="Database">
+            <DatabaseGlyph className="h-[13px] w-[13px]" />
+          </ServiceStatus>
         </div>
 
         <button

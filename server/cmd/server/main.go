@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 
 	"github.com/Shubham-Rasal/open-conductor/server/internal/handler"
@@ -63,13 +62,6 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("guest user ready", "id", guestUser.ID)
-
-	localWs, err := bootstrapWorkspace(context.Background(), queries)
-	if err != nil {
-		slog.Error("bootstrap workspace", "err", err)
-		os.Exit(1)
-	}
-	slog.Info("local workspace ready", "id", localWs.ID, "slug", localWs.Slug)
 
 	store := &handler.Store{Q: queries, TaskService: taskSvc}
 
@@ -140,10 +132,19 @@ func main() {
 	r.Route("/api", func(r chi.Router) {
 		handler.RegisterAuthRoutes(r, store)
 
-		// Public: local config (workspace ID for guest mode)
-		r.Get("/local", func(w http.ResponseWriter, _ *http.Request) {
+		// Public: optional slug "local" workspace id (no auto-create; null until user creates one)
+		r.Get("/local", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"workspace_id":"` + localWs.ID + `"}`))
+			ws, err := queries.GetWorkspaceBySlug(r.Context(), "local")
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					_, _ = w.Write([]byte(`{"workspace_id":null}`))
+					return
+				}
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`{"workspace_id":"` + ws.ID + `"}`))
 		})
 
 		// Planning assistant tools (no JWT, no token — workspace + stream id in URL).
@@ -187,24 +188,4 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
-}
-
-func bootstrapWorkspace(ctx context.Context, q *db.Queries) (db.Workspace, error) {
-	ws, err := q.GetWorkspaceBySlug(ctx, "local")
-	if err == nil {
-		return ws, nil
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return db.Workspace{}, err
-	}
-	return q.CreateWorkspace(ctx, db.CreateWorkspaceParams{
-		ID:                 uuid.New().String(),
-		Name:               "Local",
-		Slug:               "local",
-		Prefix:             "LOC",
-		Description:        sql.NullString{Valid: false},
-		Type:               "local",
-		ConnectionUrl:      sql.NullString{Valid: false},
-		WorkingDirectory:   sql.NullString{Valid: false},
-	})
 }

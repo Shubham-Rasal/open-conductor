@@ -19,6 +19,7 @@ import (
 
 func RegisterAgentRoutes(r chi.Router, s *Store) {
 	r.Get("/detect-agents", detectAgents(s))
+	r.Get("/agent-models", listAgentModels())
 	r.Route("/workspaces/{workspaceId}/agents", func(r chi.Router) {
 		r.Get("/", listAgents(s))
 		r.Post("/", createAgent(s))

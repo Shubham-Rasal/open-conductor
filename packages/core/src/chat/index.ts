@@ -1,11 +1,6 @@
 export * from "./queries";
 export * from "./mutations";
-export {
-  inferChatAgentProvider,
-  presetsForProvider,
-  CHAT_MODEL_PRESETS,
-  type ChatModelPreset,
-} from "./agentModelPresets";
+export { inferChatAgentProvider, inferChatAgentProviderForModels } from "./agentModelPresets";
 export * from "./conversationTypes";
 export {
   useConvStore,

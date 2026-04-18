@@ -49,10 +49,17 @@
   color: var(--text);
 }
 
-.navLogoMark {
-  color: var(--accent);
-  font-size: 0.625rem;
-  line-height: 1;
+.navLogoImg {
+  display: block;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.footerLogoImg {
+  display: block;
+  flex-shrink: 0;
+  object-fit: contain;
+  opacity: 0.92;
 }
 
 .navLinks {

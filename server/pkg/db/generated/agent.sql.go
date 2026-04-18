@@ -81,7 +81,7 @@ WHERE id = (
       AND NOT EXISTS (
           SELECT 1 FROM agent_task_queue active
           WHERE active.agent_id = atq.agent_id
-            AND active.workspace_id = ?
+            AND active.workspace_id = atq.workspace_id
             AND active.status IN ('dispatched', 'running')
             AND (
               (atq.issue_id IS NOT NULL AND active.issue_id = atq.issue_id)
@@ -91,9 +91,9 @@ WHERE id = (
       AND (
           SELECT COUNT(*) FROM agent_task_queue running
           WHERE running.agent_id = atq.agent_id
-            AND running.workspace_id = ?
+            AND running.workspace_id = atq.workspace_id
             AND running.status IN ('dispatched', 'running')
-      ) < (SELECT max_concurrent_tasks FROM agents a WHERE a.id = ?)
+      ) < (SELECT max_concurrent_tasks FROM agents a WHERE a.id = atq.agent_id)
     ORDER BY atq.priority DESC, atq.created_at ASC
     LIMIT 1
 )
@@ -101,19 +101,13 @@ RETURNING id, agent_id, issue_id, chat_session_id, status, priority, output, err
 `
 
 type ClaimAgentTaskParams struct {
-	AgentID       string `json:"agent_id"`
-	WorkspaceID   string `json:"workspace_id"`
-	WorkspaceID_2 string `json:"workspace_id_2"`
-	ID            string `json:"id"`
+	AgentID     string `json:"agent_id"`
+	WorkspaceID string `json:"workspace_id"`
 }
 
+// Inner subqueries correlate to atq (only ? are agent_id and workspace_id on the outer row).
 func (q *Queries) ClaimAgentTask(ctx context.Context, arg ClaimAgentTaskParams) (AgentTaskQueue, error) {
-	row := q.db.QueryRowContext(ctx, claimAgentTask,
-		arg.AgentID,
-		arg.WorkspaceID,
-		arg.WorkspaceID_2,
-		arg.ID,
-	)
+	row := q.db.QueryRowContext(ctx, claimAgentTask, arg.AgentID, arg.WorkspaceID)
 	var i AgentTaskQueue
 	err := row.Scan(
 		&i.ID,

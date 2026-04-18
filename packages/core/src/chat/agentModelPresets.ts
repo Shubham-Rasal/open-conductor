@@ -1,45 +1,50 @@
 import type { Agent } from "../types/agent";
 
-/** Align with server `inferProviderFromAgentName` / `normalizeAgentProvider`. */
-export function inferChatAgentProvider(agent: Agent): "claude" | "codex" | "opencode" | null {
-  const p = (agent.runtime?.provider ?? "").toLowerCase();
-  for (const k of ["claude", "opencode", "codex"] as const) {
-    if (p.includes(k)) return k;
+/** Collapse spaces so "Open Code" matches OpenCode / opencode. */
+function compactLower(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, "");
+}
+
+/** Map DB/runtime/provider variants to the three agent-model API keys. */
+function normalizeRuntimeProvider(raw: string): "claude" | "codex" | "opencode" | null {
+  const p = raw.trim().toLowerCase();
+  if (p === "claude" || p === "codex" || p === "opencode") {
+    return p;
   }
-  const n = agent.name.toLowerCase();
+  const c = p.replace(/[-_\s]+/g, "");
+  if (c === "claudecode" || c === "anthropic" || p === "claude-code" || p === "claude_code") {
+    return "claude";
+  }
+  if (c === "openai" || p === "chatgpt") {
+    return "codex";
+  }
+  if (c === "opencode" || p === "open-code" || p === "open_code") {
+    return "opencode";
+  }
+  if (p.startsWith("claude")) return "claude";
+  if (p.startsWith("codex")) return "codex";
+  if (p.startsWith("opencode")) return "opencode";
+  return null;
+}
+
+/** Align with server agent runtime `provider` (preferred) or agent name. */
+export function inferChatAgentProvider(agent: Agent): "claude" | "codex" | "opencode" | null {
+  const fromRuntime = normalizeRuntimeProvider(agent.runtime?.provider ?? "");
+  if (fromRuntime) return fromRuntime;
+
+  const n = compactLower(agent.name);
   if (n.includes("opencode")) return "opencode";
   if (n.includes("codex")) return "codex";
   if (n.includes("claude")) return "claude";
   return null;
 }
 
-export interface ChatModelPreset {
-  value: string;
-  label: string;
-}
-
-/** Suggested model ids for each CLI; users can still type a custom id. */
-export const CHAT_MODEL_PRESETS: Record<"claude" | "codex" | "opencode", ChatModelPreset[]> = {
-  claude: [
-    { value: "claude-sonnet-4-5-20250929", label: "Sonnet 4.5" },
-    { value: "claude-opus-4-5-20251101", label: "Opus 4.5" },
-    { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
-  ],
-  codex: [
-    { value: "gpt-5", label: "GPT-5" },
-    { value: "gpt-5-mini", label: "GPT-5 mini" },
-    { value: "gpt-4.1", label: "GPT-4.1" },
-    { value: "o4-mini", label: "o4-mini" },
-  ],
-  opencode: [
-    { value: "anthropic/claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-    { value: "openai/gpt-4.1", label: "GPT-4.1" },
-    { value: "ollama/qwen3:8b", label: "Ollama · Qwen3 8B" },
-    { value: "ollama/llama3.2", label: "Ollama · Llama 3.2" },
-  ],
-};
-
-export function presetsForProvider(p: "claude" | "codex" | "opencode" | null): ChatModelPreset[] {
-  if (!p) return [];
-  return CHAT_MODEL_PRESETS[p];
+/** Provider for loading `/api/agent-models` — never null when an agent row exists (defaults to Claude). */
+export function inferChatAgentProviderForModels(agent: Agent): "claude" | "codex" | "opencode" {
+  const p = inferChatAgentProvider(agent);
+  if (p) return p;
+  const n = compactLower(agent.name);
+  if (n.includes("codex")) return "codex";
+  if (n.includes("opencode")) return "opencode";
+  return "claude";
 }

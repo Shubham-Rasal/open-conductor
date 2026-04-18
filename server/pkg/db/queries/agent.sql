@@ -20,6 +20,7 @@ WHERE id = ?
 RETURNING *;
 
 -- name: ClaimAgentTask :one
+-- Inner subqueries correlate to atq (only ? are agent_id and workspace_id on the outer row).
 UPDATE agent_task_queue
 SET status = 'dispatched'
 WHERE id = (
@@ -31,7 +32,7 @@ WHERE id = (
       AND NOT EXISTS (
           SELECT 1 FROM agent_task_queue active
           WHERE active.agent_id = atq.agent_id
-            AND active.workspace_id = ?
+            AND active.workspace_id = atq.workspace_id
             AND active.status IN ('dispatched', 'running')
             AND (
               (atq.issue_id IS NOT NULL AND active.issue_id = atq.issue_id)
@@ -41,9 +42,9 @@ WHERE id = (
       AND (
           SELECT COUNT(*) FROM agent_task_queue running
           WHERE running.agent_id = atq.agent_id
-            AND running.workspace_id = ?
+            AND running.workspace_id = atq.workspace_id
             AND running.status IN ('dispatched', 'running')
-      ) < (SELECT max_concurrent_tasks FROM agents a WHERE a.id = ?)
+      ) < (SELECT max_concurrent_tasks FROM agents a WHERE a.id = atq.agent_id)
     ORDER BY atq.priority DESC, atq.created_at ASC
     LIMIT 1
 )

@@ -47,6 +47,10 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  icons: {
+    icon: "/oc-logo.png",
+    apple: "/oc-logo.png",
+  },
 };
 
 export const viewport: Viewport = {

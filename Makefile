@@ -1,4 +1,4 @@
-.PHONY: help dev dev-watch setup server server-watch desktop build test migrate-up migrate-down sqlc
+.PHONY: help dev dev-watch setup server server-watch desktop build desktop-bundle-go desktop-package test migrate-up migrate-down sqlc
 
 help: ## Show common targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -52,6 +52,29 @@ build: ## Build Go binaries to server/bin/
 	@cd $(ROOT)/server && go build -o bin/server ./cmd/server
 	@cd $(ROOT)/server && go build -o bin/migrate ./cmd/migrate
 	@echo "Built: server/bin/server, server/bin/migrate"
+
+# Go binaries copied into the Electron bundle (see apps/desktop/electron-builder.yml extraResources)
+desktop-bundle-go: ## Build server + migrate into apps/desktop/resources/bundled-bin/
+	@mkdir -p $(ROOT)/apps/desktop/resources/bundled-bin
+	@cd $(ROOT)/server && go build -o $(ROOT)/apps/desktop/resources/bundled-bin/server ./cmd/server
+	@cd $(ROOT)/server && go build -o $(ROOT)/apps/desktop/resources/bundled-bin/migrate ./cmd/migrate
+	@echo "Bundled Go binaries: apps/desktop/resources/bundled-bin/"
+
+# Packaged app output: apps/desktop/dist/ (e.g. mac-arm64/Open Conductor.app, or .dmg from CI)
+desktop-package: desktop-bundle-go ## Build workspace packages + Electron app for this OS/arch (unpacked dir for quick testing)
+	@cd $(ROOT) && pnpm exec turbo run build --filter=@open-conductor/core --filter=@open-conductor/ui --filter=@open-conductor/views
+	@case "$$(uname -s)_$$(uname -m)" in \
+	Darwin_arm64) \
+	  cd $(ROOT)/apps/desktop && pnpm exec electron-vite build && pnpm exec electron-builder --config electron-builder.yml --mac dir --arm64 --publish never ;; \
+	Darwin_x86_64) \
+	  cd $(ROOT)/apps/desktop && pnpm exec electron-vite build && pnpm exec electron-builder --config electron-builder.yml --mac dir --x64 --publish never ;; \
+	Linux_x86_64) \
+	  cd $(ROOT)/apps/desktop && pnpm exec electron-vite build && pnpm exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never ;; \
+	*) \
+	  echo "desktop-package: no rule for $$(uname -s)/$$(uname -m). See .github/workflows/release.yml for Windows/Linux CI steps."; \
+	  exit 1 ;; \
+	esac
+	@echo "Done. Open the app under apps/desktop/dist/ (see electron-builder output above)."
 
 # ─── Database ─────────────────────────────────────────────────────────────────
 
