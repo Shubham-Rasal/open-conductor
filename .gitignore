@@ -46,3 +46,4 @@ apps/desktop/resources/bundled-bin/*
 !apps/desktop/resources/bundled-bin/.gitkeep
 apps/desktop/resources/bundled-migrations/*
 !apps/desktop/resources/bundled-migrations/.gitkeep
+open_conductor.db

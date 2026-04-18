@@ -9,7 +9,6 @@ import {
   useDeleteWorkspace,
 } from "@open-conductor/core/workspaces";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
-import { OpenConductorLogo } from "./OpenConductorLogo";
 import { WorkspaceIdenticon } from "./WorkspaceIdenticon";
 import type { Workspace } from "@open-conductor/core/types";
 import { ocTransitionFast } from "../motion/presets";
@@ -185,14 +184,8 @@ export function DesktopAppSidebar() {
   return (
     <nav
       className="flex h-full w-[220px] flex-shrink-0 flex-col border-r border-black/[0.06] bg-sidebar/80 backdrop-blur-3xl backdrop-saturate-150 dark:border-white/[0.07]"
-      aria-label="Open Conductor"
+      aria-label="Sidebar"
     >
-      {/* Brand */}
-      <div className="mx-3 mb-1 flex shrink-0 items-center gap-2 border-b border-black/[0.05] pb-3 pt-1 dark:border-white/[0.06]">
-        <OpenConductorLogo size={26} />
-        <span className="truncate text-[12px] font-semibold tracking-tight text-foreground/85">Open Conductor</span>
-      </div>
-
       {/* Workspace list */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-2">
         {deleteError && (

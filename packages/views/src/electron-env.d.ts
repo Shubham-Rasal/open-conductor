@@ -7,6 +7,8 @@ export type BundledRuntimeStatePayload =
 /** Optional Electron bridge exposed from apps/desktop preload (may be absent in web builds). */
 export interface OpenConductorElectron {
   platform: string;
+  getFullscreen?: () => Promise<boolean>;
+  subscribeFullscreen?: (callback: (fullscreen: boolean) => void) => () => void;
   gitClone?: (
     url: string,
     parentPath: string

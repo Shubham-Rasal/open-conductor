@@ -4,6 +4,16 @@ import { contextBridge, ipcRenderer } from "electron";
 // Keep this as small as possible — prefer using fetch/WebSocket directly.
 contextBridge.exposeInMainWorld("electron", {
   platform: process.platform,
+  getFullscreen: () =>
+    ipcRenderer.invoke("open-conductor:get-fullscreen") as Promise<boolean>,
+  subscribeFullscreen: (callback: (fullscreen: boolean) => void) => {
+    const channel = "open-conductor:fullscreen-changed";
+    const handler = (_event: unknown, fullscreen: boolean) => callback(fullscreen);
+    ipcRenderer.on(channel, handler);
+    return () => {
+      ipcRenderer.removeListener(channel, handler);
+    };
+  },
   gitClone: (url: string, parentPath: string) =>
     ipcRenderer.invoke("open-conductor:git-clone", { url, parentPath }) as Promise<{
       ok: boolean;

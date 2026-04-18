@@ -24,6 +24,8 @@ declare global {
   interface Window {
     electron?: {
       platform: NodeJS.Platform;
+      getFullscreen?: () => Promise<boolean>;
+      subscribeFullscreen?: (callback: (fullscreen: boolean) => void) => () => void;
       gitClone?: (
         url: string,
         parentPath: string

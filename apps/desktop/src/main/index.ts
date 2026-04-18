@@ -1,5 +1,5 @@
 import { existsSync } from "fs";
-import { app, BrowserWindow, nativeImage, shell, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, nativeImage, shell, dialog } from "electron";
 import { join } from "path";
 import { autoUpdater } from "electron-updater";
 import { registerBundledRuntimeIpc, shutdownBundledStack } from "./bundled-runtime";
@@ -45,9 +45,50 @@ function setupAutoUpdater(): void {
   }
 }
 
-const windowIconPath = join(__dirname, "../../resources/icon.png");
+/** Dev: repo `apps/desktop/resources/icon.png`. Packaged: copied to `Contents/Resources/icon.png`. */
+function resolveAppIconPath(): string | undefined {
+  const devPath = join(__dirname, "../../resources/icon.png");
+  const packagedPath = join(process.resourcesPath, "icon.png");
+  if (app.isPackaged) {
+    if (existsSync(packagedPath)) return packagedPath;
+    return undefined;
+  }
+  if (existsSync(devPath)) return devPath;
+  return undefined;
+}
+
+/**
+ * Dock tile when calling `app.dock.setIcon()` — prefer `icon-dock.png` (rounded alpha
+ * from scripts/build-dock-icon.py) so the bitmap matches other squircle tiles; fall
+ * back to `icon.png`.
+ */
+function resolveDockIconPath(): string | undefined {
+  const devDir = join(__dirname, "../../resources");
+  const dockName = "icon-dock.png";
+  const plainName = "icon.png";
+  const devDock = join(devDir, dockName);
+  const devPlain = join(devDir, plainName);
+  const packDock = join(process.resourcesPath, dockName);
+  const packPlain = join(process.resourcesPath, plainName);
+  if (app.isPackaged) {
+    if (existsSync(packDock)) return packDock;
+    if (existsSync(packPlain)) return packPlain;
+    return undefined;
+  }
+  if (existsSync(devDock)) return devDock;
+  if (existsSync(devPlain)) return devPlain;
+  return undefined;
+}
+
+let mainWindow: BrowserWindow | null = null;
+
+function sendFullscreenState(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  win.webContents.send("open-conductor:fullscreen-changed", win.isFullScreen());
+}
 
 function createWindow(): void {
+  const iconPath = resolveAppIconPath();
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -59,12 +100,18 @@ function createWindow(): void {
     ...(process.platform === "win32"
       ? ({ backgroundMaterial: "acrylic" } as const)
       : {}),
-    ...(existsSync(windowIconPath) ? { icon: windowIconPath } : {}),
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
     },
   });
+
+  mainWindow = win;
+
+  win.on("enter-full-screen", () => sendFullscreenState(win));
+  win.on("leave-full-screen", () => sendFullscreenState(win));
+  win.webContents.on("did-finish-load", () => sendFullscreenState(win));
 
   // Open external links in browser, not in Electron
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -84,14 +131,21 @@ function createWindow(): void {
 let isHandlingBundledQuit = false;
 
 app.whenReady().then(() => {
+  ipcMain.handle("open-conductor:get-fullscreen", () => mainWindow?.isFullScreen() ?? false);
+
   registerBundledRuntimeIpc();
   registerGitCloneIpc();
   registerPickDirectoryIpc();
 
-  if (process.platform === "darwin" && existsSync(windowIconPath)) {
-    const img = nativeImage.createFromPath(windowIconPath);
-    if (!img.isEmpty()) {
-      app.dock.setIcon(img);
+  // Dock: use our artwork via setIcon. `icon-dock.png` has rounded alpha so the tile
+  // matches other apps; plain `icon.png` would look like a sharp square (see scripts/build-dock-icon.py).
+  if (process.platform === "darwin") {
+    const dockPath = resolveDockIconPath();
+    if (dockPath) {
+      const img = nativeImage.createFromPath(dockPath);
+      if (!img.isEmpty()) {
+        app.dock.setIcon(img);
+      }
     }
   }
 

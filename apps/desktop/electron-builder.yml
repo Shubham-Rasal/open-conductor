@@ -18,6 +18,12 @@ extraResources:
     to: bin
     filter:
       - "**/*"
+  # Runtime: process.resourcesPath + "/icon.png" | "/icon-dock.png" (see main process)
+  - from: resources
+    filter:
+      - icon.png
+      - icon-dock.png
+    to: .
 
 # Publish configuration (GitHub Releases)
 publish:

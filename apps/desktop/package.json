@@ -9,6 +9,8 @@
     "preview": "electron-vite preview",
     "package": "electron-vite build && electron-builder --config electron-builder.yml --publish never",
     "package:dir": "electron-vite build && electron-builder --config electron-builder.yml --dir --publish never",
+    "generate-dock-icon": "python3 scripts/build-dock-icon.py",
+    "sync-icon": "cp ../../apps/web/public/oc-logo.png resources/icon.png && python3 scripts/build-dock-icon.py",
     "release": "electron-vite build && electron-builder --config electron-builder.yml --publish always",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
