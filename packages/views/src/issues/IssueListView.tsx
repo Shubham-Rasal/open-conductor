@@ -202,7 +202,6 @@ function BoardColumn({
   onCardClick: (id: string) => void;
   onAdd: () => void;
 }) {
-  const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]));
   const memberMap = Object.fromEntries(members.map((m) => [m.user_id, m]));
   const title = `${col.label} (${issues.length})`;
 

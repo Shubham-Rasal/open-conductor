@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { create } from "zustand";
 import type { ProposedPlanIssue, ProposedTask } from "../types";
 import type { Conversation, ConvMessage } from "./conversationTypes";
@@ -551,7 +551,8 @@ export const useConvStore = create<ConvStoreState>((set, get) => ({
 
   clearUnread: (convId) => {
     set((s) => {
-      const { [convId]: _, ...rest } = s.unreadConvIds;
+      const rest = { ...s.unreadConvIds };
+      delete rest[convId];
       return { unreadConvIds: rest };
     });
   },

@@ -974,7 +974,7 @@ export function WorkspaceChatView() {
     }
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [conv.createTab]);
+  }, [conv.createTab]); // eslint-disable-line react-hooks/exhaustive-deps -- only rebind when createTab identity changes
 
   // Close agent picker on outside click
   useEffect(() => {
@@ -1031,7 +1031,7 @@ export function WorkspaceChatView() {
     }
     const m = selectedAgent.model?.trim() ?? "";
     setPlanChatModel(m);
-  }, [selectedAgentId, selectedAgent?.id, selectedAgent?.model]);
+  }, [selectedAgentId, selectedAgent]);
 
   const persistPlanChatModel = useCallback(
     async (next: string) => {
@@ -1056,7 +1056,6 @@ export function WorkspaceChatView() {
   const canSend =
     (input.trim().length > 0 || attachedImages.length > 0) && !isAiResponding;
   const planAssistantBusy = mode === "plan" && isAiResponding;
-  const showComposerSpinner = isAiResponding && mode === "execute";
 
   // Image helpers
   const addImageFromFile = useCallback((file: File) => {

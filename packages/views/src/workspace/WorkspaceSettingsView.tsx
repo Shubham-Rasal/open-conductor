@@ -231,7 +231,7 @@ function EnvironmentPanel({ workspaceId }: { workspaceId: string }) {
 
 // ---------- Agents panel ----------
 
-function AgentRow({ agent, workspaceId }: { agent: Agent; workspaceId: string }) {
+function AgentRow({ agent }: { agent: Agent }) {
   const update = useUpdateAgent();
 
   const [name, setName] = useState(agent.name);
@@ -383,10 +383,10 @@ function AgentsPanel({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Configure each agent's name, model override, concurrency limit, and system instructions.
+        Configure each agent&apos;s name, model override, concurrency limit, and system instructions.
       </p>
       {agents.map((a: Agent) => (
-        <AgentRow key={a.id} agent={a} workspaceId={workspaceId} />
+        <AgentRow key={a.id} agent={a} />
       ))}
     </div>
   );

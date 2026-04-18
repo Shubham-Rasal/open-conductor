@@ -146,7 +146,7 @@ function IconSpark(props: React.SVGProps<SVGSVGElement>) {
 
 // ─── Markdown renderer ────────────────────────────────────────────────────────
 
-function Md({ children, className }: { children: string; className?: string }) {
+function Md({ children }: { children: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
