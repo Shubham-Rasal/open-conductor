@@ -2,6 +2,8 @@
 
 Open Conductor is a desktop app for managed local agent swarms.
 
+![Open Conductor desktop app — chat workspace with planning, backlog, and agent controls](docs/images/desktop-chat.png)
+
 ## Repository layout
 
 | Path | Role |
@@ -21,26 +23,26 @@ Monorepo tooling: **pnpm**, **Turbo**, **TypeScript**.
 flowchart LR
   subgraph Monorepo["Open Conductor Monorepo"]
     direction LR
-    subgraph FE["Electron Frontend (`apps/desktop`)"]
+    subgraph FE["Electron Frontend — apps/desktop"]
       MAIN["Electron Main"]
       RENDERER["React Renderer"]
       MAIN --> RENDERER
     end
 
-    subgraph SHARED["Shared Packages (`packages/*`)"]
-      CORE["`packages/core` API client + workspace context"]
-      VIEWS["`packages/views` feature views"]
-      UI["`packages/ui` primitives"]
+    subgraph SHARED["Shared packages"]
+      CORE["packages/core API client + workspace context"]
+      VIEWS["packages/views feature views"]
+      UI["packages/ui primitives"]
       CORE --> VIEWS
       UI --> VIEWS
     end
 
-    subgraph BE["Go Backend (`server`)"]
+    subgraph BE["Go backend — server"]
       HTTP["HTTP API handlers"]
-      WS["WebSocket handler (`/ws`)"]
+      WS["WebSocket handler /ws"]
       RUNNER["Agent runner manager"]
       EXEC["Runner executor"]
-      DB["PostgreSQL"]
+      DB["SQLite"]
       HTTP --> RUNNER
       RUNNER --> EXEC
       HTTP --> DB
@@ -50,13 +52,13 @@ flowchart LR
     CLIS["Local agent CLIs\n(Claude Code / OpenCode / Codex)"]
   end
 
-  RENDERER -->|"REST (`/api/*`)"| HTTP
-  RENDERER -->|"WebSocket (`/ws`)"| WS
+  RENDERER -->|REST /api| HTTP
+  RENDERER -->|WebSocket /ws| WS
   CORE --> RENDERER
   VIEWS --> RENDERER
 
-  EXEC -->|"spawn + stdio bridge"| CLIS
-  WS -->|"stream task/agent events"| RENDERER
+  EXEC -->|spawn + stdio bridge| CLIS
+  WS -->|stream task and agent events| RENDERER
 ```
 
 ## Prerequisites
@@ -145,7 +147,3 @@ Live CLI **integration** pings (Claude / Codex) are opt-in:
 ```sh
 INTEGRATION_AGENT=1 go test ./pkg/agent/... -run 'Integration.*Ping' -timeout=10m -v
 ```
-
-## License
-
-See the repository license file if one is present; otherwise refer to the project owners.
