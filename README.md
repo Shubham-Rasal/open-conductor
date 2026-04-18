@@ -4,18 +4,11 @@ Open Conductor is a desktop app for managed local agent swarms.
 
 <img width="1512" height="950" alt="image" src="https://github.com/user-attachments/assets/e9ee193a-d24a-4b7c-a8fd-1c22201f3cb4" />
 
-## Repository layout
 
-| Path | Role |
-|------|------|
-| `apps/desktop` | Electron + React UI (issues, agents, connect/disconnect/reconnect) |
-| `server` | HTTP/WebSocket API, task queue, agent runners |
-| `packages/core` | Shared API client, React Query, workspace context |
-| `packages/views` | Feature views consumed by the desktop app |
-| `packages/ui` | Shared UI primitives |
-| `apps/web`, `apps/docs` | Optional Next.js apps (not required for the main product) |
+I wanted something to manage my local agents and often times I find that I end up spinning up multiple ghostty windows and try to manage them.
 
-Monorepo tooling: **pnpm**, **Turbo**, **TypeScript**.
+This app takes heavy inspiration from [Conductor](https://conductor.build/) and [Multica](https://multica.ai/).
+
 
 ## Architecture
 
