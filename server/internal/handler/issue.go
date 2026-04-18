@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -10,7 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 
 	"github.com/Shubham-Rasal/open-conductor/server/internal/runner"
 	appMiddleware "github.com/Shubham-Rasal/open-conductor/server/internal/middleware"
@@ -36,7 +37,7 @@ func stopIssueAgent(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
 		issueID := parseUUID(chi.URLParam(r, "issueId"))
-		if !wsID.Valid || !issueID.Valid {
+		if wsID == "" || issueID == "" {
 			http.Error(w, "invalid id", http.StatusBadRequest)
 			return
 		}
@@ -47,25 +48,25 @@ func stopIssueAgent(s *Store) http.HandlerFunc {
 			return
 		}
 
-		if err := s.TaskService.CancelTasksForIssue(r.Context(), issueID); err != nil {
-			slog.Error("stop issue agent: cancel tasks", "issue_id", formatUUID(issueID), "err", err)
+		if err := s.TaskService.CancelTasksForIssue(r.Context(), issue.ID); err != nil {
+			slog.Error("stop issue agent: cancel tasks", "issue_id", issueID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 
-		if !issue.AgentAssigneeID.Valid || issue.AssigneeType == nil || *issue.AssigneeType != "agent" {
+		if !issue.AgentAssigneeID.Valid || !issue.AssigneeType.Valid || issue.AssigneeType.String != "agent" {
 			writeJSON(w, map[string]string{"status": "ok"})
 			return
 		}
 
 		rt, rtErr := s.Q.GetAgentRuntimeByAgentAndWorkspace(r.Context(), db.GetAgentRuntimeByAgentAndWorkspaceParams{
-			AgentID:     issue.AgentAssigneeID,
+			AgentID:     issue.AgentAssigneeID.String,
 			WorkspaceID: wsID,
 		})
-		if rtErr != nil || !rt.ID.Valid || rt.Status != "online" {
+		if rtErr != nil || rt.ID == "" || rt.Status != "online" {
 			broadcastEvent("task:stage", map[string]any{
-				"issue_id":     formatUUID(issueID),
-				"workspace_id": formatUUID(wsID),
+				"issue_id":     issueID,
+				"workspace_id": wsID,
 				"stage":        "cancelled",
 			})
 			writeJSON(w, map[string]string{"status": "ok"})
@@ -79,12 +80,18 @@ func stopIssueAgent(s *Store) http.HandlerFunc {
 			return
 		}
 
+		var conn *string
+		if wsRow.ConnectionUrl.Valid && wsRow.ConnectionUrl.String != "" {
+			u := wsRow.ConnectionUrl.String
+			conn = &u
+		}
+
 		runner.Global.StopAndWait(rt.ID, 12*time.Second)
-		runner.Global.Start(context.Background(), s.Q, rt.ID, issue.AgentAssigneeID, wsID, rt.Provider, wsRow.Type, wsRow.ConnectionUrl, Broadcast)
+		runner.Global.Start(context.Background(), s.Q, rt.ID, issue.AgentAssigneeID.String, wsID, rt.Provider, wsRow.Type, conn, Broadcast)
 
 		broadcastEvent("task:stage", map[string]any{
-			"issue_id":     formatUUID(issueID),
-			"workspace_id": formatUUID(wsID),
+			"issue_id":     issueID,
+			"workspace_id": wsID,
 			"stage":        "cancelled",
 		})
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -94,11 +101,11 @@ func stopIssueAgent(s *Store) http.HandlerFunc {
 func listIssueTasks(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		issueID := parseUUID(chi.URLParam(r, "issueId"))
-		if !issueID.Valid {
+		if issueID == "" {
 			http.Error(w, "invalid issue id", http.StatusBadRequest)
 			return
 		}
-		tasks, err := s.Q.ListTasksForIssue(r.Context(), issueID)
+		tasks, err := s.Q.ListTasksForIssue(r.Context(), sql.NullString{String: issueID, Valid: true})
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -110,7 +117,7 @@ func listIssueTasks(s *Store) http.HandlerFunc {
 func listIssues(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -126,21 +133,20 @@ func listIssues(s *Store) http.HandlerFunc {
 }
 
 type createIssueRequest struct {
-	Title             string  `json:"title"`
-	Description       *string `json:"description"`
-	Status            string  `json:"status"`
-	Priority          string  `json:"priority"`
-	AssigneeType      *string `json:"assignee_type"`
-	AgentAssigneeID   *string `json:"agent_assignee_id"`
-	UserAssigneeID    *string `json:"user_assignee_id"`
-	// Legacy: single assignee_id with assignee_type
+	Title            string  `json:"title"`
+	Description      *string `json:"description"`
+	Status           string  `json:"status"`
+	Priority         string  `json:"priority"`
+	AssigneeType     *string `json:"assignee_type"`
+	AgentAssigneeID  *string `json:"agent_assignee_id"`
+	UserAssigneeID   *string `json:"user_assignee_id"`
 	LegacyAssigneeID *string `json:"assignee_id"`
 }
 
 func createIssue(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -153,6 +159,10 @@ func createIssue(s *Store) http.HandlerFunc {
 
 		userID := appMiddleware.GetUserID(r)
 		createdByID := parseUUID(userID)
+		if createdByID == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 
 		num, err := s.Q.NextIssueNumber(r.Context(), wsID)
 		if err != nil {
@@ -169,44 +179,73 @@ func createIssue(s *Store) http.HandlerFunc {
 			priority = "no_priority"
 		}
 
-		var agentID, userAssign pgtype.UUID
+		agentStr := ""
+		userStr := ""
 		if req.AgentAssigneeID != nil && *req.AgentAssigneeID != "" {
-			agentID = parseUUID(*req.AgentAssigneeID)
+			agentStr = parseUUID(*req.AgentAssigneeID)
 		}
 		if req.UserAssigneeID != nil && *req.UserAssigneeID != "" {
-			userAssign = parseUUID(*req.UserAssigneeID)
+			userStr = parseUUID(*req.UserAssigneeID)
 		}
-		if !agentID.Valid && !userAssign.Valid && req.LegacyAssigneeID != nil && *req.LegacyAssigneeID != "" {
+		if agentStr == "" && userStr == "" && req.LegacyAssigneeID != nil && *req.LegacyAssigneeID != "" {
 			if req.AssigneeType != nil && *req.AssigneeType == "agent" {
-				agentID = parseUUID(*req.LegacyAssigneeID)
+				agentStr = parseUUID(*req.LegacyAssigneeID)
 			}
 			if req.AssigneeType != nil && *req.AssigneeType == "member" {
-				userAssign = parseUUID(*req.LegacyAssigneeID)
+				userStr = parseUUID(*req.LegacyAssigneeID)
 			}
 		}
 
 		assigneeType := req.AssigneeType
 		if assigneeType == nil {
-			if agentID.Valid {
+			if agentStr != "" {
 				t := "agent"
 				assigneeType = &t
-			} else if userAssign.Valid {
+			} else if userStr != "" {
 				t := "member"
 				assigneeType = &t
 			}
 		}
 
+		if assigneeType != nil {
+			switch *assigneeType {
+			case "agent":
+				userStr = ""
+			case "member":
+				agentStr = ""
+			}
+		}
+
+		assigneeNS := sql.NullString{}
+		if assigneeType != nil && *assigneeType != "" {
+			assigneeNS = sql.NullString{String: *assigneeType, Valid: true}
+		}
+		agentNS := sql.NullString{}
+		if agentStr != "" {
+			agentNS = sql.NullString{String: agentStr, Valid: true}
+		}
+		userNS := sql.NullString{}
+		if userStr != "" {
+			userNS = sql.NullString{String: userStr, Valid: true}
+		}
+		descNS := sql.NullString{}
+		if req.Description != nil {
+			descNS = sql.NullString{String: *req.Description, Valid: true}
+		}
+
 		issue, err := s.Q.CreateIssue(r.Context(), db.CreateIssueParams{
+			ID:              uuid.New().String(),
 			WorkspaceID:     wsID,
-			Number:          &num,
+			Number:          sql.NullInt64{Int64: num, Valid: true},
 			Title:           req.Title,
-			Description:     req.Description,
+			Description:     descNS,
 			Status:          status,
 			Priority:        priority,
-			AssigneeType:    assigneeType,
-			AgentAssigneeID: agentID,
-			UserAssigneeID:  userAssign,
+			AssigneeType:    assigneeNS,
+			AgentAssigneeID: agentNS,
+			UserAssigneeID:  userNS,
 			CreatedByID:     createdByID,
+			WorkspaceID_2:   wsID,
 		})
 		if err != nil {
 			http.Error(w, fmt.Sprintf("create issue: %v", err), http.StatusInternalServerError)
@@ -228,7 +267,7 @@ func createIssue(s *Store) http.HandlerFunc {
 func getIssue(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "issueId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid issue id", http.StatusBadRequest)
 			return
 		}
@@ -244,73 +283,95 @@ func getIssue(s *Store) http.HandlerFunc {
 }
 
 type updateIssueRequest struct {
-	Title           *string  `json:"title"`
-	Description     *string  `json:"description"`
-	Status          *string  `json:"status"`
-	Priority        *string  `json:"priority"`
-	AssigneeType    *string  `json:"assignee_type"`
-	AgentAssigneeID *string  `json:"agent_assignee_id"`
-	UserAssigneeID  *string  `json:"user_assignee_id"`
-	LegacyAssigneeID *string `json:"assignee_id"`
-	Position        *float64 `json:"position"`
+	Title             *string  `json:"title"`
+	Description       *string  `json:"description"`
+	Status            *string  `json:"status"`
+	Priority          *string  `json:"priority"`
+	AssigneeType      *string  `json:"assignee_type"`
+	AgentAssigneeID   *string  `json:"agent_assignee_id"`
+	UserAssigneeID    *string  `json:"user_assignee_id"`
+	LegacyAssigneeID  *string  `json:"assignee_id"`
+	Position          *float64 `json:"position"`
 }
 
-func mergeAssigneeOnUpdate(prev db.Issue, req updateIssueRequest) (assigneeType *string, agentID pgtype.UUID, userID pgtype.UUID) {
-	if prev.AssigneeType != nil {
-		v := *prev.AssigneeType
+func mergeAssigneeOnUpdate(prev db.Issue, req updateIssueRequest) (sql.NullString, sql.NullString, sql.NullString) {
+	var assigneeType *string
+	if prev.AssigneeType.Valid {
+		v := prev.AssigneeType.String
 		assigneeType = &v
 	}
 	if req.AssigneeType != nil {
 		assigneeType = req.AssigneeType
 	}
 
-	agentID = prev.AgentAssigneeID
-	userID = prev.UserAssigneeID
+	at := prev.AssigneeType
+	agentID := prev.AgentAssigneeID
+	userID := prev.UserAssigneeID
+
+	if req.AssigneeType != nil {
+		if strings.TrimSpace(*req.AssigneeType) == "" {
+			at = sql.NullString{}
+		} else {
+			at = sql.NullString{String: strings.TrimSpace(*req.AssigneeType), Valid: true}
+		}
+	}
 
 	if req.AgentAssigneeID != nil {
-		if *req.AgentAssigneeID == "" {
-			agentID = pgtype.UUID{Valid: false}
+		if strings.TrimSpace(*req.AgentAssigneeID) == "" {
+			agentID = sql.NullString{}
 		} else {
-			agentID = parseUUID(*req.AgentAssigneeID)
+			s := parseUUID(strings.TrimSpace(*req.AgentAssigneeID))
+			if s != "" {
+				agentID = sql.NullString{String: s, Valid: true}
+			}
 		}
 	}
 	if req.UserAssigneeID != nil {
-		if *req.UserAssigneeID == "" {
-			userID = pgtype.UUID{Valid: false}
+		if strings.TrimSpace(*req.UserAssigneeID) == "" {
+			userID = sql.NullString{}
 		} else {
-			userID = parseUUID(*req.UserAssigneeID)
+			s := parseUUID(strings.TrimSpace(*req.UserAssigneeID))
+			if s != "" {
+				userID = sql.NullString{String: s, Valid: true}
+			}
 		}
 	}
 
 	if req.LegacyAssigneeID != nil && req.AgentAssigneeID == nil && req.UserAssigneeID == nil {
-		if *req.LegacyAssigneeID == "" {
-			agentID = pgtype.UUID{Valid: false}
-			userID = pgtype.UUID{Valid: false}
+		if strings.TrimSpace(*req.LegacyAssigneeID) == "" {
+			agentID = sql.NullString{}
+			userID = sql.NullString{}
 		} else if assigneeType != nil && *assigneeType == "agent" {
-			agentID = parseUUID(*req.LegacyAssigneeID)
-			userID = pgtype.UUID{Valid: false}
+			leg := parseUUID(strings.TrimSpace(*req.LegacyAssigneeID))
+			if leg != "" {
+				agentID = sql.NullString{String: leg, Valid: true}
+			}
+			userID = sql.NullString{}
 		} else if assigneeType != nil && *assigneeType == "member" {
-			userID = parseUUID(*req.LegacyAssigneeID)
-			agentID = pgtype.UUID{Valid: false}
+			leg := parseUUID(strings.TrimSpace(*req.LegacyAssigneeID))
+			if leg != "" {
+				userID = sql.NullString{String: leg, Valid: true}
+			}
+			agentID = sql.NullString{}
 		}
 	}
 
-	if assigneeType != nil {
-		switch *assigneeType {
+	if assigneeType != nil && strings.TrimSpace(*assigneeType) != "" {
+		switch strings.TrimSpace(*assigneeType) {
 		case "agent":
-			userID = pgtype.UUID{Valid: false}
+			userID = sql.NullString{}
 		case "member":
-			agentID = pgtype.UUID{Valid: false}
+			agentID = sql.NullString{}
 		}
 	}
 
-	return assigneeType, agentID, userID
+	return at, agentID, userID
 }
 
 func updateIssue(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "issueId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid issue id", http.StatusBadRequest)
 			return
 		}
@@ -331,14 +392,14 @@ func updateIssue(s *Store) http.HandlerFunc {
 
 		issue, err := s.Q.UpdateIssue(r.Context(), db.UpdateIssueParams{
 			ID:              id,
-			Title:           req.Title,
-			Description:     req.Description,
-			Status:          req.Status,
-			Priority:        req.Priority,
+			Title:           ptrToNullString(req.Title),
+			Description:     ptrToNullString(req.Description),
+			Status:          ptrToNullString(req.Status),
+			Priority:        ptrToNullString(req.Priority),
 			AssigneeType:    at,
 			AgentAssigneeID: agentID,
 			UserAssigneeID:  userID,
-			Position:        req.Position,
+			Position:        floatPtrToNullFloat64(req.Position),
 		})
 		if err != nil {
 			http.Error(w, fmt.Sprintf("update issue: %v", err), http.StatusInternalServerError)
@@ -356,8 +417,6 @@ func updateIssue(s *Store) http.HandlerFunc {
 			prev.Status != issue.Status &&
 			s.TaskService.ShouldEnqueueAgentTask(issue) &&
 			(issue.Status == "todo" || issue.Status == "in_progress") {
-			// Assignee unchanged: moving into todo/in_progress must still surface work for the agent.
-			// Same as changing assignee on the issue card: refresh the queue when leaving backlog/blocked.
 			if prev.Status == "backlog" || prev.Status == "blocked" {
 				_ = s.TaskService.CancelTasksForIssue(r.Context(), id)
 				_ = s.TaskService.EnqueueTaskForIssue(r.Context(), issue)
@@ -379,15 +438,15 @@ func updateIssue(s *Store) http.HandlerFunc {
 func assigneeKey(issue db.Issue) string {
 	a := ""
 	if issue.AgentAssigneeID.Valid {
-		a = issue.AgentAssigneeID.String()
+		a = issue.AgentAssigneeID.String
 	}
 	u := ""
 	if issue.UserAssigneeID.Valid {
-		u = issue.UserAssigneeID.String()
+		u = issue.UserAssigneeID.String
 	}
 	t := ""
-	if issue.AssigneeType != nil {
-		t = *issue.AssigneeType
+	if issue.AssigneeType.Valid {
+		t = issue.AssigneeType.String
 	}
 	return t + "|" + a + "|" + u
 }
@@ -395,7 +454,7 @@ func assigneeKey(issue db.Issue) string {
 func deleteIssue(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "issueId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid issue id", http.StatusBadRequest)
 			return
 		}
@@ -407,7 +466,7 @@ func deleteIssue(s *Store) http.HandlerFunc {
 			return
 		}
 
-		broadcastEvent("issue:deleted", map[string]string{"id": id.String()})
+		broadcastEvent("issue:deleted", map[string]string{"id": id})
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -424,7 +483,7 @@ type orchestratorTaskIn struct {
 func enqueueBulkOrchestratorTasks(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -439,7 +498,7 @@ func enqueueBulkOrchestratorTasks(s *Store) http.HandlerFunc {
 
 		userID := appMiddleware.GetUserID(r)
 		createdByID := parseUUID(userID)
-		if !createdByID.Valid {
+		if createdByID == "" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -457,12 +516,12 @@ func enqueueBulkOrchestratorTasks(s *Store) http.HandlerFunc {
 				return
 			}
 			agentID := parseUUID(t.AgentID)
-			if !agentID.Valid {
+			if agentID == "" {
 				http.Error(w, "invalid agent_id for task "+t.LocalID, http.StatusBadRequest)
 				return
 			}
 			ag, err := s.Q.GetAgent(ctx, agentID)
-			if err != nil || formatUUID(ag.WorkspaceID) != formatUUID(wsID) {
+			if err != nil || ag.WorkspaceID != wsID {
 				http.Error(w, "agent not in workspace", http.StatusBadRequest)
 				return
 			}
@@ -479,17 +538,23 @@ func enqueueBulkOrchestratorTasks(s *Store) http.HandlerFunc {
 			}
 
 			assigneeType := "agent"
+			descNS := sql.NullString{}
+			if t.Description != nil {
+				descNS = sql.NullString{String: *t.Description, Valid: true}
+			}
 			issue, err := s.Q.CreateIssue(ctx, db.CreateIssueParams{
+				ID:              uuid.New().String(),
 				WorkspaceID:     wsID,
-				Number:          &num,
+				Number:          sql.NullInt64{Int64: num, Valid: true},
 				Title:           strings.TrimSpace(t.Title),
-				Description:     t.Description,
+				Description:     descNS,
 				Status:          "backlog",
 				Priority:        priority,
-				AssigneeType:    &assigneeType,
-				AgentAssigneeID: agentID,
-				UserAssigneeID:  pgtype.UUID{Valid: false},
+				AssigneeType:    sql.NullString{String: assigneeType, Valid: true},
+				AgentAssigneeID: sql.NullString{String: agentID, Valid: true},
+				UserAssigneeID:  sql.NullString{},
 				CreatedByID:     createdByID,
+				WorkspaceID_2:   wsID,
 			})
 			if err != nil {
 				http.Error(w, "create issue: "+err.Error(), http.StatusInternalServerError)
@@ -501,7 +566,7 @@ func enqueueBulkOrchestratorTasks(s *Store) http.HandlerFunc {
 			}
 
 			broadcastEvent("issue:created", issue)
-			results = append(results, resultOut{LocalID: t.LocalID, IssueID: formatUUID(issue.ID)})
+			results = append(results, resultOut{LocalID: t.LocalID, IssueID: issue.ID})
 		}
 
 		writeJSON(w, map[string]any{"results": results})

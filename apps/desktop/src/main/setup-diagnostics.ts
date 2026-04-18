@@ -5,7 +5,7 @@ import { app } from "electron";
 import { bundledArtifactsPresent } from "./bundled-artifacts";
 
 export type SetupDiagnostics = {
-  /** True when the packaged app ships server + migrate binaries and SQL migrations. */
+  /** True when the packaged app ships server + migrate binaries (SQLite schema is embedded in migrate). */
   bundledBinariesPresent: boolean;
   packaged: boolean;
   dockerCliAvailable: boolean;

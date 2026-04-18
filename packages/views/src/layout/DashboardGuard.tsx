@@ -50,7 +50,7 @@ function ServerOffline({ onRetry, checking }: { onRetry: () => void; checking: b
       key: "env",
       label: "Set up environment",
       cmd: "cp .env.example .env",
-      hint: "Then edit DATABASE_URL if needed",
+      hint: "Default is SQLite (file:./open_conductor.db from repo root)",
     },
     {
       key: "migrate",
@@ -62,7 +62,7 @@ function ServerOffline({ onRetry, checking }: { onRetry: () => void; checking: b
       key: "start",
       label: "Start the server",
       cmd: "cd server && go run ./cmd/server",
-      hint: "Requires PostgreSQL to be running",
+      hint: "Run migrate first so the SQLite file exists",
     },
   ];
 

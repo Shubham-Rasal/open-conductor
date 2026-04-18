@@ -3,19 +3,21 @@ package handler
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 
 	appMiddleware "github.com/Shubham-Rasal/open-conductor/server/internal/middleware"
 	agentpkg "github.com/Shubham-Rasal/open-conductor/server/pkg/agent"
@@ -27,7 +29,7 @@ import (
 // URLs. Stream id in the path ties propose_* events to the correct chat tab.
 
 type assistantToolSession struct {
-	workspaceID pgtype.UUID
+	workspaceID string
 	store       *Store
 	streamID    string
 }
@@ -37,7 +39,7 @@ var (
 	assistantToolSessions   = map[string]assistantToolSession{} // keyed by chat stream_id
 )
 
-func registerAssistantToolSession(streamID string, wsID pgtype.UUID, s *Store) {
+func registerAssistantToolSession(streamID string, wsID string, s *Store) {
 	assistantToolSessionsMu.Lock()
 	assistantToolSessions[streamID] = assistantToolSession{workspaceID: wsID, store: s, streamID: streamID}
 	assistantToolSessionsMu.Unlock()
@@ -59,7 +61,7 @@ func lookupAssistantToolSession(streamID string) (assistantToolSession, bool) {
 // ── Assistant stream cancellation (Stop button) ───────────────────────────────
 
 type chatStreamCancel struct {
-	workspaceID pgtype.UUID
+	workspaceID string
 	cancel      context.CancelFunc
 }
 
@@ -68,7 +70,7 @@ var (
 	chatStreamCancels   = map[string]chatStreamCancel{}
 )
 
-func registerChatStreamCancel(streamID string, workspaceID pgtype.UUID, cancel context.CancelFunc) {
+func registerChatStreamCancel(streamID string, workspaceID string, cancel context.CancelFunc) {
 	chatStreamCancelsMu.Lock()
 	chatStreamCancels[streamID] = chatStreamCancel{workspaceID: workspaceID, cancel: cancel}
 	chatStreamCancelsMu.Unlock()
@@ -80,7 +82,7 @@ func unregisterChatStreamCancel(streamID string) {
 	chatStreamCancelsMu.Unlock()
 }
 
-func takeChatStreamCancel(streamID string, workspaceID pgtype.UUID) (context.CancelFunc, bool) {
+func takeChatStreamCancel(streamID string, workspaceID string) (context.CancelFunc, bool) {
 	chatStreamCancelsMu.Lock()
 	defer chatStreamCancelsMu.Unlock()
 	ent, ok := chatStreamCancels[streamID]
@@ -126,20 +128,20 @@ func RegisterAssistantToolRoutes(r chi.Router, s *Store) {
 func listWorkspaceMessages(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
-		limit := int32(50)
+		limit := int64(50)
 		if v := r.URL.Query().Get("limit"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
-				limit = int32(n)
+				limit = int64(n)
 			}
 		}
-		offset := int32(0)
+		offset := int64(0)
 		if v := r.URL.Query().Get("offset"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-				offset = int32(n)
+				offset = int64(n)
 			}
 		}
 		msgs, err := s.Q.ListWorkspaceMessages(r.Context(), db.ListWorkspaceMessagesParams{
@@ -178,7 +180,7 @@ type postMessageRequest struct {
 func postWorkspaceMessage(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -189,15 +191,16 @@ func postWorkspaceMessage(s *Store) http.HandlerFunc {
 		}
 		userID := appMiddleware.GetUserID(r)
 		authorID := parseUUID(userID)
-		if !authorID.Valid {
+		if authorID == "" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
 		userMsg, err := s.Q.CreateWorkspaceMessage(r.Context(), db.CreateWorkspaceMessageParams{
+			ID:          uuid.New().String(),
 			WorkspaceID: wsID,
 			AuthorType:  "user",
-			AuthorID:    authorID,
+			AuthorID:    sql.NullString{String: authorID, Valid: true},
 			Content:     strings.TrimSpace(req.Content),
 			Metadata:    nil,
 		})
@@ -261,7 +264,7 @@ type postCancelChatRequest struct {
 func postCancelWorkspaceChatStream(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -291,10 +294,10 @@ func workspaceMessageJSON(m db.WorkspaceMessage) map[string]any {
 		"workspace_id": formatUUID(m.WorkspaceID),
 		"author_type":  m.AuthorType,
 		"content":      m.Content,
-		"created_at":   m.CreatedAt.Time,
+		"created_at":   m.CreatedAt,
 	}
 	if m.AuthorID.Valid {
-		out["author_id"] = formatUUID(m.AuthorID)
+		out["author_id"] = formatUUID(m.AuthorID.String)
 	}
 	if len(m.Metadata) > 0 {
 		var meta any
@@ -342,11 +345,11 @@ func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userM
 	}
 
 	cwd := ""
-	if ws.WorkingDirectory != nil {
-		cwd = strings.TrimSpace(*ws.WorkingDirectory)
+	if ws.WorkingDirectory.Valid {
+		cwd = strings.TrimSpace(ws.WorkingDirectory.String)
 		if strings.HasPrefix(cwd, "~/") {
 			if home, err := os.UserHomeDir(); err == nil {
-				cwd = home + strings.TrimPrefix(cwd, "~")
+				cwd = filepath.Join(home, strings.TrimPrefix(cwd, "~/"))
 			}
 		}
 	}
@@ -361,12 +364,12 @@ func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userM
 	}
 	for _, iss := range issues {
 		desc := ""
-		if iss.Description != nil {
-			desc = " — " + *iss.Description
+		if iss.Description.Valid {
+			desc = " — " + iss.Description.String
 		}
 		num := ""
-		if iss.Number != nil {
-			num = fmt.Sprintf("#%d ", *iss.Number)
+		if iss.Number.Valid {
+			num = fmt.Sprintf("#%d ", iss.Number.Int64)
 		}
 		issuesCtx.WriteString(fmt.Sprintf("  %s[%s] %s (%s)%s\n", num, iss.Status, iss.Title, iss.Priority, desc))
 	}
@@ -612,9 +615,10 @@ List agents (to get IDs for assignment):
 	saveCtx, saveCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer saveCancel()
 	assistantMsg, err := s.Q.CreateWorkspaceMessage(saveCtx, db.CreateWorkspaceMessageParams{
+		ID:          uuid.New().String(),
 		WorkspaceID: ws.ID,
 		AuthorType:  "assistant",
-		AuthorID:    pgtype.UUID{Valid: false},
+		AuthorID:    sql.NullString{},
 		Content:     text,
 		Metadata:    meta,
 	})
@@ -668,23 +672,23 @@ func pickChatAgentPreferring(ctx context.Context, preferProvider string) (agentp
 }
 
 // resolveChatToolPreference maps a workspace agent row to a CLI provider name and optional model for ExecOptions.
-func resolveChatToolPreference(ctx context.Context, s *Store, wsID pgtype.UUID, agentIDStr string) (provider string, model string) {
+func resolveChatToolPreference(ctx context.Context, s *Store, wsID string, agentIDStr string) (provider string, model string) {
 	if strings.TrimSpace(agentIDStr) == "" {
 		return "", ""
 	}
 	aid := parseUUID(strings.TrimSpace(agentIDStr))
-	if !aid.Valid {
+	if aid == "" {
 		return "", ""
 	}
 	ag, err := s.Q.GetAgent(ctx, aid)
 	if err != nil {
 		return "", ""
 	}
-	if formatUUID(ag.WorkspaceID) != formatUUID(wsID) {
+	if ag.WorkspaceID != wsID {
 		return "", ""
 	}
-	if ag.Model != nil {
-		model = strings.TrimSpace(*ag.Model)
+	if ag.Model.Valid {
+		model = strings.TrimSpace(ag.Model.String)
 	}
 	if rt, err := s.Q.GetAgentRuntimeByAgentAndWorkspace(ctx, db.GetAgentRuntimeByAgentAndWorkspaceParams{
 		AgentID:     aid,
@@ -746,7 +750,7 @@ type postPlanRequest struct {
 func postWorkspacePlan(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -776,11 +780,11 @@ func postWorkspacePlan(s *Store) http.HandlerFunc {
 		}
 
 		cwd := ""
-		if ws.WorkingDirectory != nil {
-			cwd = strings.TrimSpace(*ws.WorkingDirectory)
+		if ws.WorkingDirectory.Valid {
+			cwd = strings.TrimSpace(ws.WorkingDirectory.String)
 			if strings.HasPrefix(cwd, "~/") {
 				if home, err := os.UserHomeDir(); err == nil {
-					cwd = home + strings.TrimPrefix(cwd, "~")
+					cwd = filepath.Join(home, strings.TrimPrefix(cwd, "~/"))
 				}
 			}
 		}
@@ -839,9 +843,9 @@ Goal:
 
 // ── Assistant tool HTTP handlers (workspace + optional stream in path) ───────
 
-func assistantWorkspaceIDFromRequest(r *http.Request) (pgtype.UUID, bool) {
+func assistantWorkspaceIDFromRequest(r *http.Request) (string, bool) {
 	wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-	return wsID, wsID.Valid
+	return wsID, wsID != ""
 }
 
 func assistantStreamSessionFromRequest(r *http.Request, s *Store) (assistantToolSession, bool) {
@@ -854,7 +858,7 @@ func assistantStreamSessionFromRequest(r *http.Request, s *Store) (assistantTool
 		return assistantToolSession{}, false
 	}
 	wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-	if !wsID.Valid || formatUUID(sess.workspaceID) != formatUUID(wsID) {
+	if wsID == "" || sess.workspaceID != wsID {
 		return assistantToolSession{}, false
 	}
 	if sess.store != s {
@@ -887,17 +891,27 @@ func assistantToolListIssues(s *Store) http.HandlerFunc {
 		out := make([]issueOut, 0, len(issues))
 		for _, iss := range issues {
 			assignee := "unassigned"
-			if iss.AssigneeType != nil {
-				assignee = *iss.AssigneeType
-				if *iss.AssigneeType == "agent" && iss.AgentAssigneeID.Valid {
-					assignee = "agent:" + formatUUID(iss.AgentAssigneeID)
+			if iss.AssigneeType.Valid {
+				assignee = iss.AssigneeType.String
+				if iss.AssigneeType.String == "agent" && iss.AgentAssigneeID.Valid {
+					assignee = "agent:" + iss.AgentAssigneeID.String
 				}
 			}
+			var numPtr *int32
+			if iss.Number.Valid {
+				n := int32(iss.Number.Int64)
+				numPtr = &n
+			}
+			var descPtr *string
+			if iss.Description.Valid {
+				d := iss.Description.String
+				descPtr = &d
+			}
 			out = append(out, issueOut{
-				ID:          formatUUID(iss.ID),
-				Number:      iss.Number,
+				ID:          iss.ID,
+				Number:      numPtr,
 				Title:       iss.Title,
-				Description: iss.Description,
+				Description: descPtr,
 				Status:      iss.Status,
 				Priority:    iss.Priority,
 				Assignee:    assignee,
@@ -939,23 +953,35 @@ func assistantToolCreateIssue(s *Store) http.HandlerFunc {
 			num = 1
 		}
 
-		assigneeType := &req.AssigneeType
-		if req.AssigneeType == "" {
-			assigneeType = nil
+		assigneeNS := sql.NullString{}
+		if strings.TrimSpace(req.AssigneeType) != "" {
+			assigneeNS = sql.NullString{String: strings.TrimSpace(req.AssigneeType), Valid: true}
 		}
-		agentID := parseUUID(req.AgentID)
+		descNS := sql.NullString{}
+		if req.Description != nil && strings.TrimSpace(*req.Description) != "" {
+			descNS = sql.NullString{String: strings.TrimSpace(*req.Description), Valid: true}
+		}
+		agentNS := sql.NullString{}
+		if aid := strings.TrimSpace(req.AgentID); aid != "" {
+			if p := parseUUID(aid); p != "" {
+				agentNS = sql.NullString{String: p, Valid: true}
+			}
+		}
 
+		const guestUserID = "00000000-0000-4000-8000-000000000001"
 		iss, err := s.Q.CreateIssue(r.Context(), db.CreateIssueParams{
+			ID:              uuid.New().String(),
 			WorkspaceID:     wsID,
-			Number:          &num,
+			Number:          sql.NullInt64{Int64: num, Valid: true},
 			Title:           strings.TrimSpace(req.Title),
-			Description:     req.Description,
+			Description:     descNS,
 			Status:          req.Status,
 			Priority:        req.Priority,
-			AssigneeType:    assigneeType,
-			AgentAssigneeID: agentID,
-			UserAssigneeID:  pgtype.UUID{Valid: false},
-			CreatedByID:     pgtype.UUID{Valid: false},
+			AssigneeType:    assigneeNS,
+			AgentAssigneeID: agentNS,
+			UserAssigneeID:  sql.NullString{},
+			CreatedByID:     guestUserID,
+			WorkspaceID_2:   wsID,
 		})
 		if err != nil {
 			http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
@@ -991,7 +1017,7 @@ func assistantToolAssignIssue(s *Store) http.HandlerFunc {
 		}
 
 		issueID := parseUUID(chi.URLParam(r, "issueId"))
-		if !issueID.Valid {
+		if issueID == "" {
 			http.Error(w, "invalid issue id", http.StatusBadRequest)
 			return
 		}
@@ -1005,17 +1031,21 @@ func assistantToolAssignIssue(s *Store) http.HandlerFunc {
 		}
 
 		agentID := parseUUID(req.AgentID)
-		if !agentID.Valid {
+		if agentID == "" {
 			http.Error(w, "invalid agent_id", http.StatusBadRequest)
 			return
 		}
 
-		assigneeType := "agent"
 		_, err := s.Q.UpdateIssue(r.Context(), db.UpdateIssueParams{
 			ID:              issueID,
-			AssigneeType:    &assigneeType,
-			AgentAssigneeID: agentID,
-			UserAssigneeID:  pgtype.UUID{Valid: false},
+			Title:           sql.NullString{},
+			Description:     sql.NullString{},
+			Status:          sql.NullString{},
+			Priority:        sql.NullString{},
+			AssigneeType:    sql.NullString{String: "agent", Valid: true},
+			AgentAssigneeID: sql.NullString{String: agentID, Valid: true},
+			UserAssigneeID:  sql.NullString{},
+			Position:        sql.NullFloat64{},
 		})
 		if err != nil {
 			http.Error(w, "update failed: "+err.Error(), http.StatusInternalServerError)
@@ -1040,7 +1070,7 @@ func assistantToolUpdateIssueStatus(s *Store) http.HandlerFunc {
 		}
 
 		issueID := parseUUID(chi.URLParam(r, "issueId"))
-		if !issueID.Valid {
+		if issueID == "" {
 			http.Error(w, "invalid issue id", http.StatusBadRequest)
 			return
 		}
@@ -1058,7 +1088,7 @@ func assistantToolUpdateIssueStatus(s *Store) http.HandlerFunc {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		if formatUUID(iss.WorkspaceID) != formatUUID(wsID) {
+		if iss.WorkspaceID != wsID {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
@@ -1152,8 +1182,8 @@ func assistantToolListAgents(s *Store) http.HandlerFunc {
 		out := make([]agentOut, 0, len(agents))
 		for _, ag := range agents {
 			model := ""
-			if ag.Model != nil {
-				model = *ag.Model
+			if ag.Model.Valid {
+				model = ag.Model.String
 			}
 			online := false
 			if rt, err := s.Q.GetAgentRuntimeByAgentAndWorkspace(r.Context(), db.GetAgentRuntimeByAgentAndWorkspaceParams{

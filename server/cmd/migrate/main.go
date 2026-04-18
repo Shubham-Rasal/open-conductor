@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -15,11 +14,6 @@ import (
 
 func main() {
 	_ = godotenv.Load()
-
-	schemaPath := os.Getenv("SCHEMA_PATH")
-	if schemaPath == "" {
-		schemaPath = filepath.Join("pkg", "db", "schema.sqlite.sql")
-	}
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -32,12 +26,18 @@ func main() {
 	}
 	defer db.Close()
 
-	schema, err := os.ReadFile(schemaPath)
-	if err != nil {
-		log.Fatalf("read schema %s: %v", schemaPath, err)
+	var schemaSQL string
+	if p := os.Getenv("SCHEMA_PATH"); p != "" {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			log.Fatalf("read schema %s: %v", p, err)
+		}
+		schemaSQL = string(b)
+	} else {
+		schemaSQL = embeddedSchema
 	}
 
-	if err := applySchema(db, string(schema)); err != nil {
+	if err := applySchema(db, schemaSQL); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
 

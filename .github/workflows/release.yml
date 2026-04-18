@@ -73,12 +73,6 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Copy SQL migrations for bundled desktop
-        shell: bash
-        run: |
-          mkdir -p apps/desktop/resources/bundled-migrations
-          cp server/pkg/db/migrations/*.sql apps/desktop/resources/bundled-migrations/
-
       - name: Build Go API binaries for Electron (Unix)
         if: runner.os != 'Windows'
         shell: bash

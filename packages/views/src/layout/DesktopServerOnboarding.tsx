@@ -70,7 +70,6 @@ export function DesktopServerOnboarding({
   const [bundled, setBundled] = useState<BundledState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [pgOn, setPgOn] = useState(true);
   const [apiOn, setApiOn] = useState(true);
   const [starting, setStarting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -134,7 +133,7 @@ export function DesktopServerOnboarding({
       await handleStopBundled();
     }
     setStarting(true);
-    const res = await electron.localRuntime.start({ postgres: pgOn, server: apiOn });
+    const res = await electron.localRuntime.start({ server: apiOn });
     if (!res.ok) {
       setStarting(false);
       setActionError("error" in res ? res.error : "Could not start services.");
@@ -149,7 +148,7 @@ export function DesktopServerOnboarding({
   }
 
   const devSteps = [
-    { key: "compose", label: "Start PostgreSQL (Docker)", cmd: "docker compose up -d" },
+    { key: "env", label: "Set DATABASE_URL (repo root .env)", cmd: "DATABASE_URL=file:./open_conductor.db" },
     { key: "migrate", label: "Apply database schema (first run)", cmd: "cd server && go run ./cmd/migrate" },
     { key: "serve", label: "Start the API server", cmd: "cd server && go run ./cmd/server" },
   ];
@@ -222,7 +221,7 @@ export function DesktopServerOnboarding({
               label={diag.bundledBinariesPresent ? "One-click setup available" : "One-click setup not in this build"}
               detail={
                 diag.bundledBinariesPresent
-                  ? "This app includes PostgreSQL and the API server."
+                  ? "This app includes the API server and a local SQLite database."
                   : hasBundled
                     ? "Install a release build from GitHub for bundled services, or follow the steps below."
                     : undefined
@@ -233,7 +232,7 @@ export function DesktopServerOnboarding({
               label="Docker"
               detail={
                 !diag.dockerCliAvailable
-                  ? "Not found — optional; used for PostgreSQL in developer setups."
+                  ? "Not found — optional for some developer workflows."
                   : diag.dockerDaemonRunning
                     ? "Docker Desktop is running."
                     : "Docker is installed but the engine is not running. Open Docker Desktop."
@@ -251,8 +250,8 @@ export function DesktopServerOnboarding({
         {diag?.bundledBinariesPresent && hasBundled && (
           <StepCard n={1} title="Start everything (recommended)">
             <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
-              We&apos;ll start a private database on your machine and then launch the Open Conductor server. First launch may
-              take a minute while the database initializes.
+              We&apos;ll create a private SQLite database file in your app data folder, apply the schema, and launch the Open
+              Conductor server. First launch may take a moment.
             </p>
 
             <div className="mb-4 space-y-3 rounded-xl border border-border/40 bg-muted/20 p-3">
@@ -260,34 +259,15 @@ export function DesktopServerOnboarding({
                 <input
                   type="checkbox"
                   className="mt-0.5 h-4 w-4 rounded border-border"
-                  checked={pgOn}
-                  onChange={(e) => setPgOn(e.target.checked)}
-                  disabled={starting}
-                />
-                <span>
-                  <span className="text-sm font-medium text-foreground">Start local PostgreSQL</span>
-                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                    Keeps your data on this computer. Uses a dedicated local port so it won&apos;t replace a PostgreSQL you
-                    already use.
-                  </span>
-                </span>
-              </label>
-              <label className="flex cursor-pointer items-start gap-3">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-border"
                   checked={apiOn}
-                  onChange={(e) => {
-                    setApiOn(e.target.checked);
-                    if (e.target.checked) setPgOn(true);
-                  }}
+                  onChange={(e) => setApiOn(e.target.checked)}
                   disabled={starting}
                 />
                 <span>
                   <span className="text-sm font-medium text-foreground">Start Open Conductor server</span>
                   <span className="mt-0.5 block text-[11px] text-muted-foreground">
                     Serves the app at <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">localhost:8080</code>
-                    . Requires the database option above.
+                    .
                   </span>
                 </span>
               </label>
@@ -318,7 +298,7 @@ export function DesktopServerOnboarding({
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={starting || (apiOn && !pgOn)}
+                disabled={starting || !apiOn}
                 onClick={() => void handleStartBundled()}
                 className="inline-flex flex-1 min-w-[8rem] items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -335,18 +315,15 @@ export function DesktopServerOnboarding({
                 Stop
               </button>
             </div>
-            {apiOn && !pgOn && (
-              <p className="mt-2 text-[11px] text-amber-200/90">Turn on PostgreSQL to run the server, or use manual setup.</p>
-            )}
           </StepCard>
         )}
 
         {/* Docker-assisted developer path */}
         {diag && !diag.bundledBinariesPresent && (
-          <StepCard n={diag.bundledBinariesPresent ? 2 : 1} title="Use Docker for PostgreSQL (developers)">
+          <StepCard n={diag.bundledBinariesPresent ? 2 : 1} title="Manual setup (developers)">
             <p className="mb-3 text-xs text-muted-foreground">
-              If you cloned the repository and use Docker Desktop, start the database with Compose from the project folder, then
-              run migrations and the server in two more commands.
+              From a clone of the repository, set <code className="rounded bg-muted px-1">DATABASE_URL</code> to a SQLite file,
+              run migrate once, then start the API server.
             </p>
             {!diag.dockerCliAvailable && (
               <p className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-100/90">

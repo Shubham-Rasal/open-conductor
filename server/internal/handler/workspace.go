@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	db "github.com/Shubham-Rasal/open-conductor/server/pkg/db/generated"
 )
@@ -42,7 +44,7 @@ func RegisterWorkspaceRoutes(r chi.Router, s *Store) {
 func listWorkspaceMembers(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -109,13 +111,14 @@ func createWorkspace(s *Store) http.HandlerFunc {
 		}
 
 		ws, err := s.Q.CreateWorkspace(r.Context(), db.CreateWorkspaceParams{
-			Name:               req.Name,
-			Slug:               slug,
-			Prefix:             prefix,
-			Description:        req.Description,
-			Type:               wsType,
-			ConnectionUrl:      req.ConnectionURL,
-			WorkingDirectory:   req.WorkingDirectory,
+			ID:               uuid.New().String(),
+			Name:             req.Name,
+			Slug:             slug,
+			Prefix:           prefix,
+			Description:      ptrToNullString(req.Description),
+			Type:             wsType,
+			ConnectionUrl:    ptrToNullString(req.ConnectionURL),
+			WorkingDirectory: ptrToNullString(req.WorkingDirectory),
 		})
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -131,7 +134,7 @@ func createWorkspace(s *Store) http.HandlerFunc {
 func getWorkspace(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -158,7 +161,7 @@ type patchWorkspaceRequest struct {
 func patchWorkspace(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -177,14 +180,22 @@ func patchWorkspace(s *Store) http.HandlerFunc {
 			}
 		}
 
+		var typeNS sql.NullString
+		if req.Type != nil {
+			t := strings.TrimSpace(*req.Type)
+			if t != "" {
+				typeNS = sql.NullString{String: t, Valid: true}
+			}
+		}
+
 		ws, err := s.Q.UpdateWorkspace(r.Context(), db.UpdateWorkspaceParams{
-			ID:                 id,
-			Name:               req.Name,
-			Description:        req.Description,
-			Prefix:             req.Prefix,
-			Type:               req.Type,
-			ConnectionUrl:      req.ConnectionURL,
-			WorkingDirectory:   req.WorkingDirectory,
+			ID:               id,
+			Name:             ptrToNullString(req.Name),
+			Description:      ptrToNullString(req.Description),
+			Prefix:           ptrToNullString(req.Prefix),
+			Type:             typeNS,
+			ConnectionUrl:    ptrToNullString(req.ConnectionURL),
+			WorkingDirectory: ptrToNullString(req.WorkingDirectory),
 		})
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
@@ -197,7 +208,7 @@ func patchWorkspace(s *Store) http.HandlerFunc {
 func listEnvVars(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -218,7 +229,7 @@ type upsertEnvVarRequest struct {
 func upsertEnvVar(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -228,6 +239,7 @@ func upsertEnvVar(s *Store) http.HandlerFunc {
 			return
 		}
 		v, err := s.Q.UpsertWorkspaceEnvVar(r.Context(), db.UpsertWorkspaceEnvVarParams{
+			ID:          uuid.New().String(),
 			WorkspaceID: id,
 			Key:         req.Key,
 			Value:       req.Value,
@@ -244,7 +256,7 @@ func deleteEnvVar(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "workspaceId"))
 		key := chi.URLParam(r, "key")
-		if !id.Valid || key == "" {
+		if id == "" || key == "" {
 			http.Error(w, "invalid params", http.StatusBadRequest)
 			return
 		}
@@ -262,7 +274,7 @@ func deleteEnvVar(s *Store) http.HandlerFunc {
 func deleteWorkspace(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}

@@ -124,9 +124,15 @@ func main() {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	guestUserIDStr := guestUser.ID
 
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		dbOK := sqldb.PingContext(r.Context()) == nil
+		dbStatus := "ok"
+		if !dbOK {
+			dbStatus = "error"
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","db":"` + dbStatus + `"}`))
 	})
 
 	r.Get("/ws", handler.HandleWebSocket)

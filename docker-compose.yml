@@ -1,3 +1,5 @@
+# Optional: PostgreSQL is not required for Open Conductor (the server uses SQLite by default).
+# Use this only if you want a local Postgres for other tools or experiments.
 services:
   postgres:
     image: pgvector/pgvector:pg17

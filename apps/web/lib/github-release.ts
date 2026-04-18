@@ -14,7 +14,7 @@ export interface Release {
   assets: ReleaseAsset[];
 }
 
-const DEFAULT_REPO = "open-conductor/open-conductor";
+const DEFAULT_REPO = "Shubham-Rasal/open-conductor";
 
 function repo(): string {
   return process.env.GITHUB_REPO ?? DEFAULT_REPO;

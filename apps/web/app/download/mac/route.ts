@@ -7,9 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const url = await getMacInstallerDownloadUrl();
   if (!url) {
-    const fallback = new URL("/", request.url);
-    fallback.hash = "download";
-    return NextResponse.redirect(fallback, 302);
+    return NextResponse.redirect(new URL("/", request.url), 302);
   }
   return NextResponse.redirect(url, 302);
 }

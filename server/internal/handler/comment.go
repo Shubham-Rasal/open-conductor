@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	appMiddleware "github.com/Shubham-Rasal/open-conductor/server/internal/middleware"
 	db "github.com/Shubham-Rasal/open-conductor/server/pkg/db/generated"
@@ -19,7 +20,7 @@ func RegisterCommentRoutes(r chi.Router, s *Store) {
 func listComments(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		issueID := parseUUID(chi.URLParam(r, "issueId"))
-		if !issueID.Valid {
+		if issueID == "" {
 			http.Error(w, "invalid issue id", http.StatusBadRequest)
 			return
 		}
@@ -41,7 +42,7 @@ type createCommentRequest struct {
 func createComment(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		issueID := parseUUID(chi.URLParam(r, "issueId"))
-		if !issueID.Valid {
+		if issueID == "" {
 			http.Error(w, "invalid issue id", http.StatusBadRequest)
 			return
 		}
@@ -54,8 +55,13 @@ func createComment(s *Store) http.HandlerFunc {
 
 		userID := appMiddleware.GetUserID(r)
 		authorID := parseUUID(userID)
+		if authorID == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 
 		comment, err := s.Q.CreateComment(r.Context(), db.CreateCommentParams{
+			ID:         uuid.New().String(),
 			IssueID:    issueID,
 			AuthorID:   authorID,
 			AuthorType: "member",
@@ -83,7 +89,7 @@ func createComment(s *Store) http.HandlerFunc {
 func deleteComment(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "commentId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid comment id", http.StatusBadRequest)
 			return
 		}

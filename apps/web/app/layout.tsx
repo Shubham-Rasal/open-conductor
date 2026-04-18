@@ -24,16 +24,16 @@ const siteUrl =
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Open Conductor — Managed local agent swarms",
+    default: "Open Conductor — A team of coding agents on your Mac",
     template: "%s · Open Conductor",
   },
   description:
-    "Desktop app for orchestrating multiple AI coding agents on your machine. Local-first, private, and open source.",
+    "Run parallel Codex and Claude Code agents in isolated workspaces. See what they’re doing, then review and merge—local-first and open source.",
   applicationName: "Open Conductor",
   openGraph: {
     title: "Open Conductor",
     description:
-      "Managed local agent swarms — spawn, direct, and review AI coding agents on your own hardware.",
+      "Run a team of coding agents on your Mac. Parallel workspaces, live progress, and changes you can review and merge.",
     type: "website",
     locale: "en_US",
   },
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Open Conductor",
     description:
-      "Unified desktop UI for multiple local AI coding agents. No cloud dependency.",
+      "Codex + Claude Code in parallel. Isolated workspaces, clear progress, merge when you’re ready.",
   },
   robots: {
     index: true,
@@ -50,10 +50,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#faf9f7" },
-    { media: "(prefers-color-scheme: dark)", color: "#141413" },
-  ],
+  /* Matches product dark --background (see conductor-theme.css .dark) */
+  themeColor: "#14151c",
   width: "device-width",
   initialScale: 1,
 };
@@ -64,7 +62,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${instrumentSerif.variable}`}>
+    <html
+      lang="en"
+      className={`dark ${dmSans.variable} ${instrumentSerif.variable}`}
+    >
       <body>{children}</body>
     </html>
   );

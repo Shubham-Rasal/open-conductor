@@ -1,36 +1,23 @@
 import { type ChildProcess, spawn } from "child_process";
-import { existsSync } from "fs";
 import { mkdir } from "fs/promises";
 import { join } from "path";
+import { pathToFileURL } from "url";
 
 import { app, ipcMain } from "electron";
 
 import { bundledArtifactsPresent } from "./bundled-artifacts";
 import { getSetupDiagnostics } from "./setup-diagnostics";
 
-/** Embedded Postgres listens here so we don't clash with a system Postgres on 5432. */
-export const BUNDLED_PG_PORT = 55432;
-
-const DB_NAME = "open_conductor";
-const DB_USER = "postgres";
-const DB_PASS = "postgres";
-
-type EmbeddedModule = { default: new (opts?: Record<string, unknown>) => EmbeddedPostgresLike };
-
-interface EmbeddedPostgresLike {
-  initialise(): Promise<void>;
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  createDatabase(name: string): Promise<void>;
-}
-
-let embeddedPg: EmbeddedPostgresLike | null = null;
 let serverProc: ChildProcess | null = null;
 let starting = false;
+
+/** @deprecated Embedded PostgreSQL was removed; SQLite is always used. Kept for renderer/API compatibility. */
+export const BUNDLED_PG_PORT = 55432;
 
 export type BundledRuntimeState =
   | { phase: "stopped" }
   | { phase: "starting"; message: string }
+  /** `postgres` is always false (historical field). */
   | { phase: "running"; postgres: boolean; server: boolean }
   | { phase: "error"; message: string };
 
@@ -52,18 +39,24 @@ function resourcesBinDir(): string {
   return join(process.resourcesPath, "bin");
 }
 
-function migrationsDir(): string {
-  return join(process.resourcesPath, "migrations");
-}
-
-/** True when packaged app includes Go binaries + migrations (built in CI). */
+/** True when packaged app includes Go binaries (built in CI). */
 export function canRunBundledStack(): boolean {
   if (!app.isPackaged) return false;
   return bundledArtifactsPresent(process.resourcesPath);
 }
 
+/** SQLite database file in app userData (WAL/journal siblings alongside it). */
+function databaseFilePath(): string {
+  return join(app.getPath("userData"), "open-conductor.db");
+}
+
+/** DSN for modernc.org/sqlite (foreign keys + WAL applied in Go). */
 function databaseUrl(): string {
-  return `postgresql://${encodeURIComponent(DB_USER)}:${encodeURIComponent(DB_PASS)}@127.0.0.1:${BUNDLED_PG_PORT}/${DB_NAME}?sslmode=disable`;
+  return pathToFileURL(databaseFilePath()).href;
+}
+
+async function ensureUserDataDir(): Promise<void> {
+  await mkdir(app.getPath("userData"), { recursive: true });
 }
 
 async function ensureJwtSecret(): Promise<string> {
@@ -81,37 +74,12 @@ async function ensureJwtSecret(): Promise<string> {
   return secret;
 }
 
-async function ensureClusterInitialized(
-  databaseDir: string,
-  embedded: EmbeddedPostgresLike
-): Promise<void> {
-  const marker = join(databaseDir, "PG_VERSION");
-  if (!existsSync(marker)) {
-    await embedded.initialise();
-  }
-}
-
-async function ensureAppDatabase(embedded: EmbeddedPostgresLike): Promise<void> {
-  try {
-    await embedded.createDatabase(DB_NAME);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("already exists") || msg.includes("duplicate")) return;
-    throw e;
-  }
-}
-
 function runMigrate(migrateBin: string, databaseURL: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const dir = migrationsDir();
-    const child = spawn(
-      migrateBin,
-      ["-dir", dir],
-      {
-        env: { ...process.env, DATABASE_URL: databaseURL },
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
+    const child = spawn(migrateBin, [], {
+      env: { ...process.env, DATABASE_URL: databaseURL },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let err = "";
     child.stderr?.on("data", (c: Buffer) => {
       err += c.toString();
@@ -156,17 +124,12 @@ function startServer(serverBin: string, databaseURL: string, jwtSecret: string):
 }
 
 export async function startBundledStack(options: {
-  postgres: boolean;
+  /** Ignored; SQLite is always used. */
+  postgres?: boolean;
   server: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!canRunBundledStack()) {
     return { ok: false, error: "Bundled server is not available in this build." };
-  }
-  if (options.server && !options.postgres) {
-    return {
-      ok: false,
-      error: "The API server needs a database. Enable PostgreSQL or use manual setup with your own Postgres.",
-    };
   }
   if (starting) {
     return { ok: false, error: "Already starting…" };
@@ -179,37 +142,15 @@ export async function startBundledStack(options: {
   setState({ phase: "starting", message: "Starting…" });
 
   try {
+    await ensureUserDataDir();
     const bin = resourcesBinDir();
     const serverBin = join(bin, exeName("server"));
     const migrateBin = join(bin, exeName("migrate"));
 
-    if (options.postgres) {
-      setState({ phase: "starting", message: "Starting PostgreSQL…" });
-      const mod = (await import(
-        "embedded-postgres"
-      )) as unknown as EmbeddedModule;
-      const EmbeddedPostgres = mod.default;
-      const dataRoot = join(app.getPath("userData"), "embedded-postgres");
-      await mkdir(dataRoot, { recursive: true });
-      const databaseDir = join(dataRoot, "data");
-
-      embeddedPg = new EmbeddedPostgres({
-        databaseDir,
-        user: DB_USER,
-        password: DB_PASS,
-        port: BUNDLED_PG_PORT,
-        persistent: true,
-      });
-
-      await ensureClusterInitialized(databaseDir, embeddedPg);
-      await embeddedPg.start();
-      await ensureAppDatabase(embeddedPg);
-    }
-
     const dbUrl = databaseUrl();
 
     if (options.server) {
-      setState({ phase: "starting", message: "Applying database migrations…" });
+      setState({ phase: "starting", message: "Applying database schema…" });
       await runMigrate(migrateBin, dbUrl);
 
       setState({ phase: "starting", message: "Starting API server…" });
@@ -219,7 +160,7 @@ export async function startBundledStack(options: {
 
     setState({
       phase: "running",
-      postgres: options.postgres,
+      postgres: false,
       server: options.server,
     });
     return { ok: true };
@@ -247,15 +188,6 @@ export async function shutdownBundledStack(): Promise<void> {
     serverProc = null;
   }
 
-  if (embeddedPg) {
-    try {
-      await embeddedPg.stop();
-    } catch {
-      /* ignore */
-    }
-    embeddedPg = null;
-  }
-
   setState({ phase: "stopped" });
 }
 
@@ -278,9 +210,8 @@ export function registerBundledRuntimeIpc(): void {
   ipcMain.handle(
     "open-conductor:bundled-start",
     async (_evt, payload: { postgres?: boolean; server?: boolean }) => {
-      const postgres = payload?.postgres !== false;
       const server = payload?.server !== false;
-      return startBundledStack({ postgres, server });
+      return startBundledStack({ postgres: false, server });
     }
   );
 

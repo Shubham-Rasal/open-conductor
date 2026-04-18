@@ -1,53 +1,14 @@
+import Image from "next/image";
 import Link from "next/link";
 
 import styles from "./page.module.css";
 
-import {
-  fetchLatestRelease,
-  findAsset,
-  pickMacInstaller,
-} from "../lib/github-release";
+import { fetchLatestRelease, pickMacInstaller } from "../lib/github-release";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
-
-type Platform = {
-  label: string;
-  arch: string;
-  desc: string;
-  matchers: string[];
-};
-
-const PLATFORMS: Platform[] = [
-  {
-    label: "macOS",
-    arch: "Apple Silicon + Intel",
-    desc: "macOS 13 Ventura or later",
-    matchers: [".dmg", "mac", "darwin"],
-  },
-  {
-    label: "Windows",
-    arch: "x64",
-    desc: "Windows 10 or later",
-    matchers: [".exe", "setup", "win"],
-  },
-  {
-    label: "Linux",
-    arch: "x64",
-    desc: "AppImage · Debian/Ubuntu",
-    matchers: [".AppImage", ".deb", "linux"],
-  },
-];
 
 const MacIcon = () => (
   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -58,39 +19,18 @@ const MacIcon = () => (
   </svg>
 );
 
-const WinIcon = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path
-      d="M3 5.557L10.538 4.5v7.145H3V5.557zm0 12.886L10.538 19.5V12.36H3v6.083zm8.462 1.169L21 21v-8.64h-9.538v7.252zm0-14.224V12.36H21V3L11.462 5.388z"
-      fill="currentColor"
-    />
-  </svg>
-);
-
-const LinuxIcon = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path
-      d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 2c4.41 0 8 3.59 8 8s-3.59 8-8 8-8-3.59-8-8 3.59-8 8-8zm-1 3v2H9v2h2v5h2v-5h2V9h-2V7h-2z"
-      fill="currentColor"
-    />
-  </svg>
-);
-
-const PLATFORM_ICONS = {
-  macOS: <MacIcon />,
-  Windows: <WinIcon />,
-  Linux: <LinuxIcon />,
-} as const;
-
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "open-conductor/open-conductor";
+const GITHUB_REPO = process.env.GITHUB_REPO ?? "Shubham-Rasal/open-conductor";
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
+/** README quick start: clone, install deps, run server + desktop from source */
+const BUILD_FROM_SOURCE_URL = `${GITHUB_URL}/blob/main/README.md#quick-start`;
 
 export default async function Home() {
   const release = await fetchLatestRelease(false);
   const version = release?.tag_name ?? "v0.1.0";
-  const publishedAt = release?.published_at
-    ? formatDate(release.published_at)
-    : null;
+  const displayVersion = version.replace(/^v/i, "");
+
+  const macAsset = release ? pickMacInstaller(release.assets) : undefined;
+  const whatsNewHref = release?.html_url ?? `${GITHUB_URL}/releases`;
 
   return (
     <div className={styles.page}>
@@ -104,16 +44,13 @@ export default async function Home() {
           <a href={`${GITHUB_URL}/releases`} className={styles.navLink}>
             Releases
           </a>
-          <a href={`${GITHUB_URL}/blob/main/README.md`} className={styles.navLink}>
-            Docs
-          </a>
           <a
             href="/download/mac"
             className={styles.navDownload}
-            aria-label="Download Open Conductor for macOS"
+            aria-label="Download Open Conductor for Mac"
           >
             <MacIcon />
-            Download for Mac
+            Download Open Conductor
           </a>
           <a
             href={GITHUB_URL}
@@ -131,192 +68,132 @@ export default async function Home() {
 
       {/* ── Hero ─────────────────────────────────────────── */}
       <section className={styles.hero}>
-        <div className={styles.heroBadge}>
-          <span className={styles.heroBadgeDot} />
-          {version}
-          {publishedAt && <span className={styles.heroBadgeDate}>— {publishedAt}</span>}
-        </div>
+        <a
+          href={whatsNewHref}
+          className={styles.heroKicker}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          See what&apos;s new in {displayVersion}
+        </a>
 
-        <h1 className={styles.heroTitle}>
-          Managed local
-          <br />
-          <em>agent swarms.</em>
-        </h1>
+        <h1 className={styles.heroTitle}>Run a team of coding agents on your Mac.</h1>
 
         <p className={styles.heroDesc}>
-          Open Conductor gives you a unified desktop interface for spawning,
-          directing, and reviewing multiple AI coding agents — all running on
-          your own hardware. No cloud dependency. No telemetry.
+          Create parallel Codex + Claude Code agents in isolated workspaces. See at
+          a glance what they&apos;re working on, then review and merge their changes.
         </p>
 
         <div className={styles.heroActions}>
-          {release && release.assets.length > 0 ? (
-            <>
-              {(() => {
-                const macAsset = pickMacInstaller(release.assets);
-                return macAsset ? (
-                  <a
-                    href="/download/mac"
-                    className={styles.btnPrimary}
-                    aria-label={`Download Open Conductor ${version} for macOS (${formatBytes(macAsset.size)})`}
-                  >
-                    Download for Mac
-                    <span className={styles.btnMeta}>
-                      {formatBytes(macAsset.size)}
-                    </span>
-                  </a>
-                ) : (
-                  <a href={`${GITHUB_URL}/releases/latest`} className={styles.btnPrimary}>
-                    Download Latest
-                  </a>
-                );
-              })()}
-              <a href="#download" className={styles.btnSecondary}>
-                All platforms
-              </a>
-            </>
-          ) : (
-            <a
-              href={`${GITHUB_URL}/releases`}
-              className={styles.btnPrimary}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              View Releases on GitHub
-            </a>
-          )}
+          <a
+            href="/download/mac"
+            className={styles.btnPrimary}
+            aria-label={
+              macAsset
+                ? `Download Open Conductor ${displayVersion} for Mac (${formatBytes(macAsset.size)})`
+                : `Download Open Conductor for Mac`
+            }
+          >
+            Download Open Conductor
+            {macAsset ? (
+              <span className={styles.btnMeta}>{formatBytes(macAsset.size)}</span>
+            ) : null}
+          </a>
+          <a
+            href={BUILD_FROM_SOURCE_URL}
+            className={styles.btnSecondary}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Learn how it works
+          </a>
         </div>
 
         <p className={styles.heroNote}>
-          Requires a self-hosted Go backend and PostgreSQL.{" "}
+          Open source and local-first—your code and keys stay on your machine.{" "}
           <a href={`${GITHUB_URL}#quick-start`} className={styles.heroNoteLink}>
-            Setup guide →
+            Other platforms →
           </a>
         </p>
       </section>
 
+      {/* ── Product screenshot ─────────────────────────────── */}
+      <section
+        className={styles.showcase}
+        aria-label="Open Conductor app preview"
+      >
+        <div className={styles.showcaseFrame}>
+          <Image
+            src="/conductor-product.png"
+            alt="Open Conductor desktop app: workspace sidebar with Chat, Issues, and Agents; main area shows chat proposing an Add README task assigned to Claude Code with queued orchestration."
+            width={1024}
+            height={643}
+            priority
+            sizes="(max-width: 1200px) 100vw, 1100px"
+            className={styles.showcaseImage}
+          />
+        </div>
+      </section>
+
       {/* ── Features ─────────────────────────────────────── */}
-      <section className={styles.features}>
-        <div className={styles.feature}>
-          <div className={styles.featureNum}>01</div>
-          <h3 className={styles.featureTitle}>Local-first architecture</h3>
-          <p className={styles.featureDesc}>
-            Every agent runs on your machine against your own API keys. Open
-            Conductor never proxies your data through external servers.
+      <div className={styles.featuresWrap}>
+        <div className={styles.featuresIntro}>
+          <h2 className={styles.featuresIntroTitle}>Everything in one place</h2>
+          <p className={styles.featuresIntroDesc}>
+            Steer agents, watch work move, and keep context tied to the repos you
+            care about—without shipping your codebase to someone else&apos;s cloud.
           </p>
         </div>
-        <div className={styles.feature}>
-          <div className={styles.featureNum}>02</div>
-          <h3 className={styles.featureTitle}>Parallel agent coordination</h3>
-          <p className={styles.featureDesc}>
-            Spawn multiple coding agents against separate issues simultaneously.
-            Track progress, review diffs, and merge results from a single pane.
-          </p>
-        </div>
-        <div className={styles.feature}>
-          <div className={styles.featureNum}>03</div>
-          <h3 className={styles.featureTitle}>Issue-driven workflow</h3>
-          <p className={styles.featureDesc}>
-            Create issues, assign agents, and watch them work. Built-in issue
-            tracker integrates directly with the agent task queue.
-          </p>
-        </div>
-        <div className={styles.feature}>
-          <div className={styles.featureNum}>04</div>
-          <h3 className={styles.featureTitle}>Fully open source</h3>
-          <p className={styles.featureDesc}>
-            MIT licensed. Inspect every line, fork the codebase, run it on your
-            own infrastructure. No black boxes.
-          </p>
-        </div>
-      </section>
-
-
-      {/* ── Download ─────────────────────────────────────── */}
-      <section className={styles.download} id="download">
-        <div className={styles.downloadHeader}>
-          <h2 className={styles.downloadTitle}>Download</h2>
-          {release && (
-            <a
-              href={release.html_url}
-              className={styles.downloadVersion}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {version}
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M7 17L17 7M17 7H7M17 7v10" />
-              </svg>
-            </a>
-          )}
-        </div>
-
-        <div className={styles.platforms}>
-          {PLATFORMS.map((platform) => {
-            const asset = release
-              ? platform.label === "macOS"
-                ? pickMacInstaller(release.assets)
-                : findAsset(release.assets, platform.matchers)
-              : undefined;
-
-            return (
-              <div key={platform.label} className={styles.platformCard}>
-                <div className={styles.platformIcon}>
-                  {PLATFORM_ICONS[platform.label as keyof typeof PLATFORM_ICONS]}
-                </div>
-                <div className={styles.platformInfo}>
-                  <div className={styles.platformName}>{platform.label}</div>
-                  <div className={styles.platformArch}>{platform.arch}</div>
-                  <div className={styles.platformReq}>{platform.desc}</div>
-                </div>
-                {asset ? (
-                  <a
-                    href={
-                      platform.label === "macOS"
-                        ? "/download/mac"
-                        : asset.browser_download_url
-                    }
-                    className={styles.platformDownload}
-                    aria-label={
-                      platform.label === "macOS"
-                        ? `Download for macOS (${formatBytes(asset.size)})`
-                        : `Download for ${platform.label} (${formatBytes(asset.size)})`
-                    }
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                      <path d="M12 3v13m0 0l-4-4m4 4l4-4M3 20h18" />
-                    </svg>
-                    {formatBytes(asset.size)}
-                  </a>
-                ) : (
-                  <a
-                    href={`${GITHUB_URL}/releases/latest`}
-                    className={styles.platformDownloadFallback}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    GitHub Releases →
-                  </a>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {release?.body && (
-          <details className={styles.releaseNotes}>
-            <summary className={styles.releaseNotesSummary}>
-              Release notes for {version}
-            </summary>
-            <div className={styles.releaseNotesBody}>
-              {release.body.split("\n").map((line, i) => (
-                <p key={i}>{line || <br />}</p>
-              ))}
-            </div>
-          </details>
-        )}
-      </section>
-
+        <section className={styles.features}>
+          <div className={styles.feature}>
+            <div className={styles.featureNum}>01</div>
+            <h3 className={styles.featureTitle}>Yours end to end</h3>
+            <p className={styles.featureDesc}>
+              Runs locally with your API keys—no middleman between your agents and
+              your code.
+            </p>
+          </div>
+          <div className={styles.feature}>
+            <div className={styles.featureNum}>02</div>
+            <h3 className={styles.featureTitle}>Mix the tools you already use</h3>
+            <p className={styles.featureDesc}>
+              Claude Code, Codex, OpenCode—wire them up and swap them in or out as
+              the work changes.
+            </p>
+          </div>
+          <div className={styles.feature}>
+            <div className={styles.featureNum}>03</div>
+            <h3 className={styles.featureTitle}>Workspaces that mirror real projects</h3>
+            <p className={styles.featureDesc}>
+              Point at a checkout, track issues, and assign work to people or
+              agents without losing the thread.
+            </p>
+          </div>
+          <div className={styles.feature}>
+            <div className={styles.featureNum}>04</div>
+            <h3 className={styles.featureTitle}>See it happen</h3>
+            <p className={styles.featureDesc}>
+              Live tasks and transcripts—nudge a run, pause it, or pick up where
+              it left off.
+            </p>
+          </div>
+          <div className={styles.feature}>
+            <div className={styles.featureNum}>05</div>
+            <h3 className={styles.featureTitle}>Chat when you need a plan</h3>
+            <p className={styles.featureDesc}>
+              Sketch the next slice of work, then hand it to the queue when
+              you&apos;re ready.
+            </p>
+          </div>
+          <div className={styles.feature}>
+            <div className={styles.featureNum}>06</div>
+            <h3 className={styles.featureTitle}>Open source</h3>
+            <p className={styles.featureDesc}>
+              MIT licensed—fork it, audit it, make it yours.
+            </p>
+          </div>
+        </section>
+      </div>
 
       {/* ── Footer ───────────────────────────────────────── */}
       <footer className={styles.footer}>

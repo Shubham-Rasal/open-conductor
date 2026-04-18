@@ -13,6 +13,7 @@ import { WorkspaceIdenticon } from "./WorkspaceIdenticon";
 import type { Workspace } from "@open-conductor/core/types";
 import { ocTransitionFast } from "../motion/presets";
 import { getColorScheme, setColorScheme, type ColorScheme } from "../theme";
+import { useServerHealth } from "@open-conductor/core/hooks";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,29 @@ function Icon({ d, className, children }: { d: string | ReactNode; className?: s
       {typeof d === "string" ? <path d={d} /> : d}
       {children}
     </svg>
+  );
+}
+
+function StatusDot({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <span
+      className="group relative flex items-center gap-1 cursor-default"
+      title={`${label}: ${ok ? "online" : "offline"}`}
+    >
+      <span className="relative flex h-[7px] w-[7px]">
+        {ok && (
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-55" />
+        )}
+        <span
+          className={`relative inline-flex h-[7px] w-[7px] rounded-full ${
+            ok ? "bg-emerald-500" : "bg-muted-foreground/30"
+          }`}
+        />
+      </span>
+      <span className="text-[10px] font-medium text-muted-foreground/40 group-hover:text-muted-foreground/60 transition-colors">
+        {label === "Daemon" ? "D" : "DB"}
+      </span>
+    </span>
   );
 }
 
@@ -91,6 +115,8 @@ export function DesktopAppSidebar() {
     expandedSeedDone.current = true;
     setExpandedWsIds((prev) => (prev.size === 0 ? new Set([activeId]) : prev));
   }, [activeId]);
+
+  const { daemon, db } = useServerHealth();
 
   function handleThemeToggle() {
     const next: ColorScheme = colorScheme === "dark" ? "light" : "dark";
@@ -302,6 +328,13 @@ export function DesktopAppSidebar() {
             <path d="M9 18c-4.51 2-5-2-7-2" />
           </svg>
         </button>
+
+        {/* Service status dots */}
+        <div className="flex items-center gap-2.5" aria-label="Service status">
+          <StatusDot ok={daemon} label="Daemon" />
+          <StatusDot ok={db} label="Database" />
+        </div>
+
         <button
           type="button"
           className="rounded-lg p-1.5 text-muted-foreground/50 transition-colors hover:bg-black/[0.06] hover:text-muted-foreground dark:hover:bg-white/[0.06]"

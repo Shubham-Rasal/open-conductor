@@ -33,6 +33,13 @@ func ptrToNullInt64(p *int32) sql.NullInt64 {
 	return sql.NullInt64{Int64: int64(*p), Valid: true}
 }
 
+func floatPtrToNullFloat64(p *float64) sql.NullFloat64 {
+	if p == nil {
+		return sql.NullFloat64{}
+	}
+	return sql.NullFloat64{Float64: *p, Valid: true}
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)

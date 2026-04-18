@@ -63,18 +63,17 @@ flowchart LR
 
 - **Node.js** ≥ 18, **pnpm** 9
 - **Go** 1.22+
-- **PostgreSQL** (local or Docker)
 - Optional: **Claude Code**, **OpenCode**, and/or **Codex** on `PATH` for agent features
 
 ## Quick start
 
 ### 1. Database
 
-Create a database (example name `open_conductor`) and copy the environment file:
+Copy the environment file. By default `DATABASE_URL` points at a **SQLite** file in the repo root:
 
 ```sh
 cp .env.example .env
-# Edit DATABASE_URL if needed
+# Optional: change the path in DATABASE_URL
 ```
 
 ### 2. Migrations
@@ -110,7 +109,7 @@ The renderer is configured to use `http://localhost:8080` for the API and `ws://
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | SQLite DSN, e.g. `file:./open_conductor.db` (see `internal/sqliteutil`) |
 | `PORT` | No | HTTP port (default `8080`) |
 | `JWT_SECRET` | No | JWT signing for auth routes |
 | `CORS_ORIGIN` | No | CORS allowlist for browser clients |
