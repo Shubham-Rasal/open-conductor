@@ -49,17 +49,14 @@
   color: var(--text);
 }
 
-.navLogoImg {
-  display: block;
-  flex-shrink: 0;
-  object-fit: contain;
-}
-
+/* Pixel-art mark: integer downscale asset + nearest-style browser scaling (avoids mushy bilinear blur) */
+.navLogoImg,
 .footerLogoImg {
   display: block;
   flex-shrink: 0;
   object-fit: contain;
-  opacity: 0.92;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 .navLinks {
@@ -167,7 +164,12 @@
 /* ── Hero ────────────────────────────────────────────── */
 .hero {
   max-width: 900px;
+  margin-inline: auto;
   padding: clamp(4rem, 10vw, 8rem) clamp(1.5rem, 5vw, 4rem) clamp(3rem, 6vw, 5rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .heroKicker {
@@ -216,6 +218,7 @@
 .heroActions {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.75rem;
   flex-wrap: wrap;
   margin-bottom: 1.25rem;

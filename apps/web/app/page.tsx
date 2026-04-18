@@ -38,12 +38,13 @@ export default async function Home() {
       <header className={styles.nav}>
         <Link href="/" className={styles.navLogo}>
           <Image
-            src="/oc-logo.png"
+            src="/oc-logo-ui.png"
             alt=""
             width={28}
             height={28}
             className={styles.navLogoImg}
             priority
+            unoptimized
           />
           Open Conductor
         </Link>
@@ -140,71 +141,20 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* ── Features ─────────────────────────────────────── */}
-      <div className={styles.featuresWrap}>
-        <div className={styles.featuresIntro}>
-          <h2 className={styles.featuresIntroTitle}>Everything in one place</h2>
-          <p className={styles.featuresIntroDesc}>
-            Steer agents, watch work move, and keep context tied to the repos you
-            care about—without shipping your codebase to someone else&apos;s cloud.
-          </p>
-        </div>
-        <section className={styles.features}>
-          <div className={styles.feature}>
-            <div className={styles.featureNum}>01</div>
-            <h3 className={styles.featureTitle}>Yours end to end</h3>
-            <p className={styles.featureDesc}>
-              Runs locally with your API keys—no middleman between your agents and
-              your code.
-            </p>
-          </div>
-          <div className={styles.feature}>
-            <div className={styles.featureNum}>02</div>
-            <h3 className={styles.featureTitle}>Mix the tools you already use</h3>
-            <p className={styles.featureDesc}>
-              Claude Code, Codex, OpenCode—wire them up and swap them in or out as
-              the work changes.
-            </p>
-          </div>
-          <div className={styles.feature}>
-            <div className={styles.featureNum}>03</div>
-            <h3 className={styles.featureTitle}>Workspaces that mirror real projects</h3>
-            <p className={styles.featureDesc}>
-              Point at a checkout, track issues, and assign work to people or
-              agents without losing the thread.
-            </p>
-          </div>
-          <div className={styles.feature}>
-            <div className={styles.featureNum}>04</div>
-            <h3 className={styles.featureTitle}>See it happen</h3>
-            <p className={styles.featureDesc}>
-              Live tasks and transcripts—nudge a run, pause it, or pick up where
-              it left off.
-            </p>
-          </div>
-          <div className={styles.feature}>
-            <div className={styles.featureNum}>05</div>
-            <h3 className={styles.featureTitle}>Chat when you need a plan</h3>
-            <p className={styles.featureDesc}>
-              Sketch the next slice of work, then hand it to the queue when
-              you&apos;re ready.
-            </p>
-          </div>
-          <div className={styles.feature}>
-            <div className={styles.featureNum}>06</div>
-            <h3 className={styles.featureTitle}>Open source</h3>
-            <p className={styles.featureDesc}>
-              MIT licensed—fork it, audit it, make it yours.
-            </p>
-          </div>
-        </section>
-      </div>
+      
 
       {/* ── Footer ───────────────────────────────────────── */}
       <footer className={styles.footer}>
         <div className={styles.footerLeft}>
           <span className={styles.footerLogo}>
-            <Image src="/oc-logo.png" alt="" width={22} height={22} className={styles.footerLogoImg} />
+            <Image
+              src="/oc-logo-ui.png"
+              alt=""
+              width={22}
+              height={22}
+              className={styles.footerLogoImg}
+              unoptimized
+            />
             Open Conductor
           </span>
           <span className={styles.footerSep}>·</span>

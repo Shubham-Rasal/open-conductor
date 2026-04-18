@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     template: "%s · Open Conductor",
   },
   description:
-    "Chat, issues, and agent runs in one local app. Open source; your code stays on your machine.",
+    "Chat, issues, and agent runs in one local app. Open source;",
   applicationName: "Open Conductor",
   openGraph: {
     title: "Open Conductor",
