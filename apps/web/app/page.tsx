@@ -85,7 +85,7 @@ export default async function Home() {
         <h1 className={styles.heroTitle}>Local agents, one place.</h1>
 
         <p className={styles.heroDesc}>
-          Plan in chat, track issues, and run agents against your repos—on your machine, with your keys.
+          Plan in chat, track issues, and run agents that are already on your machine.
         </p>
 
         <div className={styles.heroActions}>
@@ -113,12 +113,7 @@ export default async function Home() {
           </a>
         </div>
 
-        <p className={styles.heroNote}>
-          Open source and local-first—your code and keys stay on your machine.{" "}
-          <a href={`${GITHUB_URL}#quick-start`} className={styles.heroNoteLink}>
-            Other platforms →
-          </a>
-        </p>
+       
       </section>
 
       {/* ── Product screenshot ─────────────────────────────── */}
