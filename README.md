@@ -107,6 +107,34 @@ pnpm exec turbo dev --filter=@open-conductor/desktop
 
 The renderer is configured to use `http://localhost:8080` for the API and `ws://localhost:8080/ws` for WebSockets (see `apps/desktop/src/renderer/src/App.tsx`). Start the Go server before the UI.
 
+### macOS unsigned DMG troubleshooting
+
+GitHub **DMG builds are not Apple-notarized** (no paid Developer ID in CI). After a **browser download**, macOS adds a **quarantine** flag; Gatekeeper may show **damaged** even though the file is fine.
+
+**Option A — remove quarantine, then open**
+
+After installing, run (adjust the path if your app lives elsewhere):
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/Open Conductor.app"
+```
+
+If the error appears on the **`.dmg`** before you copy the app:
+
+```sh
+xattr -dr com.apple.quarantine ~/Downloads/Open\ Conductor-*-arm64.dmg
+```
+
+**Option B — Open Anyway**
+
+Try to open the app once, then open **System Settings → Privacy & Security** and use **Open Anyway** next to the blocked-app notice.
+
+**Option C — first open from context menu**
+
+Right‑click **Open Conductor** → **Open**, then confirm.
+
+A fully silent first launch for everyone requires **Developer ID signing + notarization** (maintainer setup).
+
 ## Environment variables
 
 | Variable | Required | Description |

@@ -107,7 +107,7 @@ pnpm --filter web check-types
 
 | Area | Notes |
 |------|--------|
-| **Landing** | Hero, product screenshot (`public/conductor-product.png`), feature grid, footer. |
+| **Landing** | Hero, product screenshot (`public/conductor.png`), feature grid, footer. |
 | **Theme** | Uses shared palette from `app/conductor-theme.css` (aligned with `packages/ui` tokens). |
 | **`/download/mac`** | Server route that redirects to the latest **macOS** release asset from GitHub, or back to `/` if none is found. |
 
@@ -146,6 +146,7 @@ Connect the repo root as the project root and configure the install/build comman
 |-------|-------------|
 | **“See what’s new” shows a fallback version** | GitHub API failed or rate-limited; set `GITHUB_TOKEN`, or confirm `GITHUB_REPO` is correct. |
 | **Download redirects to home with no file** | No `.dmg` (or matched mac asset) on the latest release; check [Releases](https://github.com/Shubham-Rasal/open-conductor/releases) and `pickMacInstaller` logic in `lib/github-release.ts`. |
+| **macOS: “damaged and can’t be opened”** | Normal for **unsigned** builds downloaded in a browser. Remove quarantine: `xattr -dr com.apple.quarantine "/Applications/Open Conductor.app"` (or on the `.dmg` in `Downloads`), or use **Open Anyway** in **System Settings → Privacy & Security**. Details: [root README](https://github.com/Shubham-Rasal/open-conductor/blob/main/README.md#macos-unsigned-dmg-troubleshooting). |
 | **Wrong repo in links** | Set `GITHUB_REPO` in `.env` to `your-org/your-fork`. |
 
 ---

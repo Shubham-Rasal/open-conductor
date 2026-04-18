@@ -325,6 +325,9 @@
   display: block;
   width: 100%;
   height: auto;
+  /* Prefer higher-quality downscaling when the browser supports it (large PNG → ~1180px layout width) */
+  image-rendering: auto;
+  image-rendering: high-quality;
 }
 
 /* ── Features ────────────────────────────────────────── */

@@ -48,9 +48,6 @@ export default async function Home() {
           Open Conductor
         </Link>
         <nav className={styles.navLinks}>
-          <a href={`${GITHUB_URL}/releases`} className={styles.navLink}>
-            Releases
-          </a>
           <a
             href="/download/mac"
             className={styles.navDownload}
@@ -84,11 +81,10 @@ export default async function Home() {
           See what&apos;s new in {displayVersion}
         </a>
 
-        <h1 className={styles.heroTitle}>Run a team of coding agents on your Mac.</h1>
+        <h1 className={styles.heroTitle}>Local agents, one place.</h1>
 
         <p className={styles.heroDesc}>
-          Create parallel Codex + Claude Code agents in isolated workspaces. See at
-          a glance what they&apos;re working on, then review and merge their changes.
+          Plan in chat, track issues, and run agents against your repos—on your machine, with your keys.
         </p>
 
         <div className={styles.heroActions}>
@@ -130,13 +126,15 @@ export default async function Home() {
         aria-label="Open Conductor app preview"
       >
         <div className={styles.showcaseFrame}>
-          <Image
-            src="/conductor-product.png"
-            alt="Open Conductor desktop app: workspace sidebar with Chat, Issues, and Agents; main area shows chat proposing an Add README task assigned to Claude Code with queued orchestration."
-            width={1024}
-            height={643}
-            priority
-            sizes="(max-width: 1200px) 100vw, 1100px"
+          {/* Native <img>: full-res PNG from /public with no optimizer; avoids next/image wrapper styles on large downscaled screenshots */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- intentional: crisp hero screenshot, unoptimized static asset */}
+          <img
+            src="/conductor.png"
+            alt="Open Conductor desktop app: workspace sidebar with Chat, Issues, and Agents; main area shows research backlog, synthesis tables, and Plan mode chat."
+            width={3024}
+            height={1900}
+            fetchPriority="high"
+            decoding="async"
             className={styles.showcaseImage}
           />
         </div>
@@ -220,14 +218,6 @@ export default async function Home() {
             rel="noopener noreferrer"
           >
             GitHub
-          </a>
-          <a
-            href={`${GITHUB_URL}/releases`}
-            className={styles.footerLink}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Releases
           </a>
           <a
             href={`${GITHUB_URL}/issues`}

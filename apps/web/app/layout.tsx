@@ -24,16 +24,16 @@ const siteUrl =
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Open Conductor — A team of coding agents on your Mac",
+    default: "Open Conductor — Local agent orchestration",
     template: "%s · Open Conductor",
   },
   description:
-    "Run parallel Codex and Claude Code agents in isolated workspaces. See what they’re doing, then review and merge—local-first and open source.",
+    "Chat, issues, and agent runs in one local app. Open source; your code stays on your machine.",
   applicationName: "Open Conductor",
   openGraph: {
     title: "Open Conductor",
     description:
-      "Run a team of coding agents on your Mac. Parallel workspaces, live progress, and changes you can review and merge.",
+      "Plan work, track issues, and run coding agents locally—with your keys and your repos.",
     type: "website",
     locale: "en_US",
   },
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Open Conductor",
     description:
-      "Codex + Claude Code in parallel. Isolated workspaces, clear progress, merge when you’re ready.",
+      "Local-first orchestration for coding agents: chat, issues, and runs in one place.",
   },
   robots: {
     index: true,
