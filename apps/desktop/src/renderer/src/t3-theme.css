@@ -62,23 +62,24 @@
 :root {
   color-scheme: light;
   --radius: 0.625rem;
-  --background: var(--color-white);
-  --foreground: var(--color-neutral-800);
-  --card: var(--color-white);
-  --card-foreground: var(--color-neutral-800);
-  --popover: var(--color-white);
-  --popover-foreground: var(--color-neutral-800);
+  /* Warm beige paper — aligned with @open-conductor/ui tokens */
+  --background: oklch(0.965 0.019 87);
+  --foreground: oklch(0.305 0.028 68);
+  --card: oklch(0.992 0.012 90);
+  --card-foreground: oklch(0.305 0.028 68);
+  --popover: oklch(0.993 0.011 89);
+  --popover-foreground: oklch(0.305 0.028 68);
   --primary: oklch(0.488 0.217 264);
-  --primary-foreground: var(--color-white);
-  --secondary: --alpha(var(--color-black) / 4%);
-  --secondary-foreground: var(--color-neutral-800);
-  --muted: --alpha(var(--color-black) / 4%);
-  --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-black));
-  --accent: --alpha(var(--color-black) / 4%);
-  --accent-foreground: var(--color-neutral-800);
+  --primary-foreground: oklch(0.992 0.012 90);
+  --secondary: oklch(0.935 0.028 86);
+  --secondary-foreground: oklch(0.305 0.028 68);
+  --muted: oklch(0.934 0.026 87);
+  --muted-foreground: oklch(0.50 0.038 72);
+  --accent: oklch(0.928 0.03 86);
+  --accent-foreground: oklch(0.305 0.028 68);
   --destructive: var(--color-red-500);
-  --border: --alpha(var(--color-black) / 8%);
-  --input: --alpha(var(--color-black) / 10%);
+  --border: oklch(0.875 0.024 84);
+  --input: oklch(0.905 0.022 86);
   --ring: oklch(0.488 0.217 264);
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
@@ -184,12 +185,12 @@ input {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: color-mix(in srgb, oklch(0.42 0.04 65) 22%, transparent);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: color-mix(in srgb, oklch(0.38 0.045 65) 35%, transparent);
 }
 
 .dark ::-webkit-scrollbar-thumb {

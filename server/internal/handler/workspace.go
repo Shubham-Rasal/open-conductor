@@ -34,6 +34,9 @@ func RegisterWorkspaceRoutes(r chi.Router, s *Store) {
 	r.Get("/workspaces/{workspaceId}/members", listWorkspaceMembers(s))
 	r.Patch("/workspaces/{workspaceId}", patchWorkspace(s))
 	r.Delete("/workspaces/{workspaceId}", deleteWorkspace(s))
+	r.Get("/workspaces/{workspaceId}/env-vars", listEnvVars(s))
+	r.Put("/workspaces/{workspaceId}/env-vars", upsertEnvVar(s))
+	r.Delete("/workspaces/{workspaceId}/env-vars/{key}", deleteEnvVar(s))
 }
 
 func listWorkspaceMembers(s *Store) http.HandlerFunc {
@@ -188,6 +191,71 @@ func patchWorkspace(s *Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, ws)
+	}
+}
+
+func listEnvVars(s *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := parseUUID(chi.URLParam(r, "workspaceId"))
+		if !id.Valid {
+			http.Error(w, "invalid workspace id", http.StatusBadRequest)
+			return
+		}
+		vars, err := s.Q.ListWorkspaceEnvVars(r.Context(), id)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"env_vars": vars})
+	}
+}
+
+type upsertEnvVarRequest struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+func upsertEnvVar(s *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := parseUUID(chi.URLParam(r, "workspaceId"))
+		if !id.Valid {
+			http.Error(w, "invalid workspace id", http.StatusBadRequest)
+			return
+		}
+		var req upsertEnvVarRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Key == "" {
+			http.Error(w, "key is required", http.StatusBadRequest)
+			return
+		}
+		v, err := s.Q.UpsertWorkspaceEnvVar(r.Context(), db.UpsertWorkspaceEnvVarParams{
+			WorkspaceID: id,
+			Key:         req.Key,
+			Value:       req.Value,
+		})
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, v)
+	}
+}
+
+func deleteEnvVar(s *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := parseUUID(chi.URLParam(r, "workspaceId"))
+		key := chi.URLParam(r, "key")
+		if !id.Valid || key == "" {
+			http.Error(w, "invalid params", http.StatusBadRequest)
+			return
+		}
+		if err := s.Q.DeleteWorkspaceEnvVar(r.Context(), db.DeleteWorkspaceEnvVarParams{
+			WorkspaceID: id,
+			Key:         key,
+		}); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	}
 }
 

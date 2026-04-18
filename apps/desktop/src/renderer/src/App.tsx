@@ -30,7 +30,7 @@ function DashboardLayout() {
     <DashboardGuard>
       <div className="relative flex h-full flex-col">
         <div
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_70%_at_50%_-20%,rgba(0,0,0,0.06),transparent_55%)] dark:bg-[radial-gradient(ellipse_90%_70%_at_50%_-20%,rgba(255,255,255,0.05),transparent_55%)]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_70%_at_50%_-20%,rgba(120,95,70,0.07),transparent_55%)] dark:bg-[radial-gradient(ellipse_90%_70%_at_50%_-20%,rgba(255,255,255,0.05),transparent_55%)]"
           aria-hidden
         />
         <div

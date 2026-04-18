@@ -77,7 +77,7 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 
 	b.cfg.Logger.Info("opencode started", "pid", cmd.Process.Pid, "cwd", opts.Cwd, "model", opts.Model)
 
-	msgCh := make(chan Message, 256)
+	msgCh := make(chan Message, 2048)
 	resCh := make(chan Result, 1)
 
 	go func() {
@@ -176,7 +176,7 @@ func (b *opencodeBackend) processEvents(r io.Reader, ch chan<- Message) eventRes
 		case "error":
 			b.handleErrorEvent(event, ch, &finalStatus, &finalError)
 		case "step_start":
-			trySend(ch, Message{Type: MessageStatus, Status: "running"})
+			sendSessionMsg(ch, Message{Type: MessageStatus, Status: "running"})
 		case "step_finish":
 			// Accumulate token usage from step_finish events.
 			if t := event.Part.Tokens; t != nil {
@@ -212,7 +212,7 @@ func (b *opencodeBackend) handleTextEvent(event opencodeEvent, ch chan<- Message
 	text := event.Part.Text
 	if text != "" {
 		output.WriteString(text)
-		trySend(ch, Message{Type: MessageText, Content: text})
+		sendSessionMsg(ch, Message{Type: MessageText, Content: text})
 	}
 }
 
@@ -227,7 +227,7 @@ func (b *opencodeBackend) handleToolUseEvent(event opencodeEvent, ch chan<- Mess
 	}
 
 	// Emit the tool-use message.
-	trySend(ch, Message{
+	sendSessionMsg(ch, Message{
 		Type:   MessageToolUse,
 		Tool:   event.Part.Tool,
 		CallID: event.Part.CallID,
@@ -237,7 +237,7 @@ func (b *opencodeBackend) handleToolUseEvent(event opencodeEvent, ch chan<- Mess
 	// If the tool has completed, also emit a tool-result message.
 	if event.Part.State != nil && event.Part.State.Status == "completed" {
 		outputStr := extractToolOutput(event.Part.State.Output)
-		trySend(ch, Message{
+		sendSessionMsg(ch, Message{
 			Type:   MessageToolResult,
 			Tool:   event.Part.Tool,
 			CallID: event.Part.CallID,
@@ -259,7 +259,7 @@ func (b *opencodeBackend) handleErrorEvent(event opencodeEvent, ch chan<- Messag
 	}
 
 	b.cfg.Logger.Warn("opencode error event", "error", errMsg)
-	trySend(ch, Message{Type: MessageError, Content: errMsg})
+	sendSessionMsg(ch, Message{Type: MessageError, Content: errMsg})
 
 	*finalStatus = "failed"
 	*finalError = errMsg

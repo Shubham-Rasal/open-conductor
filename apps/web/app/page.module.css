@@ -3,6 +3,35 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 120% 80% at 50% -30%,
+    oklch(92% 0.06 55 / 0.35),
+    transparent 55%
+  );
+  z-index: 0;
+}
+
+.page > * {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  .page::before {
+    background: radial-gradient(
+      ellipse 120% 80% at 50% -25%,
+      oklch(38% 0.09 55 / 0.4),
+      transparent 58%
+    );
+  }
 }
 
 /* ── Nav ─────────────────────────────────────────────── */
@@ -55,6 +84,11 @@
   background: var(--bg-muted);
 }
 
+.navLink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .navGithub {
   display: flex;
   align-items: center;
@@ -73,6 +107,64 @@
 .navGithub:hover {
   background: var(--bg-subtle);
   border-color: var(--text-tertiary);
+}
+
+.navGithub:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.navDownload {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--bg);
+  background: var(--text);
+  padding: 0.4rem 0.75rem 0.4rem 0.55rem;
+  border-radius: 7px;
+  transition: opacity 0.15s, transform 0.15s;
+  margin-right: 0.25rem;
+}
+
+.navDownload:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.navDownload svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.navDownload:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .navDownload {
+    padding: 0.4rem 0.55rem;
+    font-size: 0.75rem;
+  }
+
+  .navDownload svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .navDownload {
+    /* icon-only hint: keep label short on tiny screens */
+    max-width: 11rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 /* ── Hero ────────────────────────────────────────────── */
@@ -159,6 +251,11 @@
   transform: translateY(-1px);
 }
 
+.btnPrimary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .btnMeta {
   font-size: 0.75rem;
   font-weight: 400;
@@ -185,6 +282,11 @@
   color: var(--text);
   border-color: var(--border-strong);
   background: var(--bg-subtle);
+}
+
+.btnSecondary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .heroNote {
@@ -359,6 +461,11 @@
   opacity: 0.85;
 }
 
+.platformDownload:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .platformDownloadFallback {
   display: inline-flex;
   align-items: center;
@@ -377,6 +484,11 @@
 .platformDownloadFallback:hover {
   color: var(--text);
   border-color: var(--border-strong);
+}
+
+.platformDownloadFallback:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ── Release Notes ───────────────────────────────────── */
@@ -477,4 +589,10 @@ details[open] .releaseNotesSummary::before {
 
 .footerLink:hover {
   color: var(--text-secondary);
+}
+
+.footerLink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
 }

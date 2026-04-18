@@ -247,21 +247,26 @@ func TestClaudeHandleControlRequestAutoApproves(t *testing.T) {
 	}
 }
 
-func TestTrySendDropsWhenFull(t *testing.T) {
+func TestSendSessionMsgBlocksUntilRead(t *testing.T) {
 	t.Parallel()
 
 	ch := make(chan Message, 1)
-	trySend(ch, Message{Type: MessageText, Content: "first"})
-	trySend(ch, Message{Type: MessageText, Content: "second"})
+	sendSessionMsg(ch, Message{Type: MessageText, Content: "first"})
+
+	unblocked := make(chan struct{})
+	go func() {
+		sendSessionMsg(ch, Message{Type: MessageText, Content: "second"})
+		close(unblocked)
+	}()
 
 	m := <-ch
 	if m.Content != "first" {
 		t.Fatalf("expected 'first', got %q", m.Content)
 	}
-	select {
-	case m := <-ch:
-		t.Fatalf("expected empty channel, got %+v", m)
-	default:
+	<-unblocked
+	m = <-ch
+	if m.Content != "second" {
+		t.Fatalf("expected 'second', got %q", m.Content)
 	}
 }
 

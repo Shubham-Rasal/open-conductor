@@ -15,6 +15,50 @@ Open Conductor is a desktop app for managed local agent swarms.
 
 Monorepo tooling: **pnpm**, **Turbo**, **TypeScript**.
 
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Monorepo["Open Conductor Monorepo"]
+    direction LR
+    subgraph FE["Electron Frontend (`apps/desktop`)"]
+      MAIN["Electron Main"]
+      RENDERER["React Renderer"]
+      MAIN --> RENDERER
+    end
+
+    subgraph SHARED["Shared Packages (`packages/*`)"]
+      CORE["`packages/core` API client + workspace context"]
+      VIEWS["`packages/views` feature views"]
+      UI["`packages/ui` primitives"]
+      CORE --> VIEWS
+      UI --> VIEWS
+    end
+
+    subgraph BE["Go Backend (`server`)"]
+      HTTP["HTTP API handlers"]
+      WS["WebSocket handler (`/ws`)"]
+      RUNNER["Agent runner manager"]
+      EXEC["Runner executor"]
+      DB["PostgreSQL"]
+      HTTP --> RUNNER
+      RUNNER --> EXEC
+      HTTP --> DB
+      WS --> DB
+    end
+
+    CLIS["Local agent CLIs\n(Claude Code / OpenCode / Codex)"]
+  end
+
+  RENDERER -->|"REST (`/api/*`)"| HTTP
+  RENDERER -->|"WebSocket (`/ws`)"| WS
+  CORE --> RENDERER
+  VIEWS --> RENDERER
+
+  EXEC -->|"spawn + stdio bridge"| CLIS
+  WS -->|"stream task/agent events"| RENDERER
+```
+
 ## Prerequisites
 
 - **Node.js** ≥ 18, **pnpm** 9

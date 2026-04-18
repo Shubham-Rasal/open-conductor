@@ -1,31 +1,31 @@
 -- name: UpsertAgentRuntime :one
-INSERT INTO agent_runtimes (agent_id, workspace_id, provider, status, device_name, last_seen_at)
-VALUES ($1, $2, $3, 'online', $4, NOW())
+INSERT INTO agent_runtimes (id, agent_id, workspace_id, provider, status, device_name, last_seen_at)
+VALUES (?, ?, ?, ?, 'online', ?, CURRENT_TIMESTAMP)
 ON CONFLICT (agent_id, workspace_id)
 DO UPDATE SET
-    provider     = EXCLUDED.provider,
+    provider     = excluded.provider,
     status       = 'online',
-    device_name  = EXCLUDED.device_name,
-    last_seen_at = NOW()
+    device_name  = excluded.device_name,
+    last_seen_at = CURRENT_TIMESTAMP
 RETURNING *;
 
 -- name: UpdateAgentRuntimeHeartbeat :exec
 UPDATE agent_runtimes
-SET last_seen_at = NOW()
-WHERE agent_id = $1 AND workspace_id = $2 AND status = 'online';
+SET last_seen_at = CURRENT_TIMESTAMP
+WHERE agent_id = ? AND workspace_id = ? AND status = 'online';
 
 -- name: SetAgentRuntimeOfflineByAgent :exec
-UPDATE agent_runtimes SET status = 'offline' WHERE agent_id = $1 AND workspace_id = $2;
+UPDATE agent_runtimes SET status = 'offline' WHERE agent_id = ? AND workspace_id = ?;
 
 -- name: MarkAgentRuntimeOffline :exec
 UPDATE agent_runtimes
 SET status = 'offline'
-WHERE last_seen_at < NOW() - INTERVAL '90 seconds'
+WHERE datetime(last_seen_at) < datetime('now', '-90 seconds')
   AND status = 'online';
 
 -- name: ListAgentRuntimes :many
 SELECT * FROM agent_runtimes
-WHERE agent_id = ANY(@agent_ids::uuid[]);
+WHERE agent_id IN (sqlc.slice('agent_ids'));
 
 -- name: GetAgentRuntimeByAgentAndWorkspace :one
-SELECT * FROM agent_runtimes WHERE agent_id = $1 AND workspace_id = $2 LIMIT 1;
+SELECT * FROM agent_runtimes WHERE agent_id = ? AND workspace_id = ? LIMIT 1;

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ApiClient } from "../api/client";
-import type { Workspace } from "../types";
+import type { Workspace, WorkspaceEnvVar } from "../types";
 import { workspaceKeys, workspaceListOptions } from "./queries";
 import { useWorkspaceStore } from "./store";
 
@@ -64,6 +64,28 @@ export function useDeleteWorkspace(api: ApiClient) {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: workspaceKeys.list() });
+    },
+  });
+}
+
+export function useUpsertEnvVar(api: ApiClient, workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { key: string; value: string }) =>
+      api.put<WorkspaceEnvVar>(`/api/workspaces/${workspaceId}/env-vars`, vars),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: workspaceKeys.envVars(workspaceId) });
+    },
+  });
+}
+
+export function useDeleteEnvVar(api: ApiClient, workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) =>
+      api.delete<{ ok: boolean }>(`/api/workspaces/${workspaceId}/env-vars/${encodeURIComponent(key)}`),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: workspaceKeys.envVars(workspaceId) });
     },
   });
 }

@@ -7,25 +7,25 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createComment = `-- name: CreateComment :one
-INSERT INTO comments (issue_id, author_id, author_type, content)
-VALUES ($1, $2, $3, $4)
+INSERT INTO comments (id, issue_id, author_id, author_type, content)
+VALUES (?, ?, ?, ?, ?)
 RETURNING id, issue_id, author_id, content, created_at, updated_at, author_type
 `
 
 type CreateCommentParams struct {
-	IssueID    pgtype.UUID `json:"issue_id"`
-	AuthorID   pgtype.UUID `json:"author_id"`
-	AuthorType string      `json:"author_type"`
-	Content    string      `json:"content"`
+	ID         string `json:"id"`
+	IssueID    string `json:"issue_id"`
+	AuthorID   string `json:"author_id"`
+	AuthorType string `json:"author_type"`
+	Content    string `json:"content"`
 }
 
 func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (Comment, error) {
-	row := q.db.QueryRow(ctx, createComment,
+	row := q.db.QueryRowContext(ctx, createComment,
+		arg.ID,
 		arg.IssueID,
 		arg.AuthorID,
 		arg.AuthorType,
@@ -45,22 +45,22 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 }
 
 const deleteComment = `-- name: DeleteComment :exec
-DELETE FROM comments WHERE id = $1
+DELETE FROM comments WHERE id = ?
 `
 
-func (q *Queries) DeleteComment(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteComment, id)
+func (q *Queries) DeleteComment(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteComment, id)
 	return err
 }
 
 const listComments = `-- name: ListComments :many
 SELECT id, issue_id, author_id, content, created_at, updated_at, author_type FROM comments
-WHERE issue_id = $1
+WHERE issue_id = ?
 ORDER BY created_at ASC
 `
 
-func (q *Queries) ListComments(ctx context.Context, issueID pgtype.UUID) ([]Comment, error) {
-	rows, err := q.db.Query(ctx, listComments, issueID)
+func (q *Queries) ListComments(ctx context.Context, issueID string) ([]Comment, error) {
+	rows, err := q.db.QueryContext(ctx, listComments, issueID)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +80,9 @@ func (q *Queries) ListComments(ctx context.Context, issueID pgtype.UUID) ([]Comm
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

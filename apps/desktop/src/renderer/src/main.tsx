@@ -7,8 +7,11 @@ import "@fontsource/dm-sans/700.css";
 import "@fontsource/geist-mono/400.css";
 import "@fontsource/geist-mono/700.css";
 import "./globals.css";
+import { getColorScheme, setColorScheme } from "@open-conductor/views/theme";
 import { App } from "./App";
 import { ErrorBoundary } from "./ErrorBoundary";
+
+setColorScheme(getColorScheme());
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element not found");

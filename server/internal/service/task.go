@@ -56,6 +56,21 @@ func (s *TaskService) ShouldEnqueueAgentTask(issue db.Issue) bool {
 		*issue.AssigneeType == "agent"
 }
 
+// IssueHasActiveAgentTask reports whether there is a queued, dispatched, or running task for the issue.
+func (s *TaskService) IssueHasActiveAgentTask(ctx context.Context, issueID pgtype.UUID) (bool, error) {
+	tasks, err := s.q.ListTasksForIssue(ctx, issueID)
+	if err != nil {
+		return false, err
+	}
+	for _, t := range tasks {
+		switch t.Status {
+		case "queued", "dispatched", "running":
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // broadcastEvent publishes a JSON event to all WebSocket clients.
 func (s *TaskService) broadcastEvent(eventType string, payload any) {
 	if s.broadcast == nil {

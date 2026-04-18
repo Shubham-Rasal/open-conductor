@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { create } from "zustand";
-import type { ProposedPlanIssue } from "../types";
+import type { ProposedPlanIssue, ProposedTask } from "../types";
 import type { Conversation, ConvMessage } from "./conversationTypes";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ export function scanLocalStorageForOrphanStreams(): void {
 export interface ChatStreamPayload {
   stream_id?: string;
   workspace_id?: string;
-  kind?: "text" | "tool_use" | "tool_result" | "thinking" | "plan_proposal";
+  kind?: "text" | "tool_use" | "tool_result" | "thinking" | "plan_proposal" | "orchestrator_proposal";
   delta?: string;
   done?: boolean;
   tool?: string;
@@ -123,6 +123,7 @@ export interface ChatStreamPayload {
   input?: string;
   output?: string;
   issues?: ProposedPlanIssue[];
+  tasks?: ProposedTask[];
 }
 
 // ─── Workspace slice ─────────────────────────────────────────────────────────
@@ -155,7 +156,23 @@ interface ConvStoreState {
   upsertThinkingMessage: (workspaceId: string, convId: string, streamId: string, content: string) => void;
   registerChatStream: (workspaceId: string, streamId: string, convId: string) => void;
   applyChatStreamEvent: (p: ChatStreamPayload) => void;
+  /** Merge enqueue results into an orchestrator_proposal message (persisted). */
+  patchOrchestratorEnqueue: (
+    workspaceId: string,
+    convId: string,
+    messageId: string,
+    localIdToIssueId: Record<string, string>
+  ) => void;
   clearUnread: (convId: string) => void;
+}
+
+/** Active assistant stream_id for a conversation tab (for Stop). */
+export function getActiveStreamIdForConversation(convId: string): string | undefined {
+  const st = useConvStore.getState().streamToConv;
+  for (const [sid, m] of Object.entries(st)) {
+    if (m.convId === convId) return sid;
+  }
+  return undefined;
 }
 
 function getSlice(state: ConvStoreState, wsId: string): WorkspaceSlice | undefined {
@@ -381,6 +398,28 @@ export const useConvStore = create<ConvStoreState>((set, get) => ({
     );
   },
 
+  patchOrchestratorEnqueue: (workspaceId, convId, messageId, localIdToIssueId) => {
+    set((state) =>
+      updateWorkspace(state, workspaceId, (slice) => ({
+        ...slice,
+        conversations: slice.conversations.map((c) => {
+          if (c.id !== convId) return c;
+          return {
+            ...c,
+            messages: c.messages.map((m) => {
+              if (m.id !== messageId || m.role !== "orchestrator_proposal") return m;
+              const prev = m.orchestratorEnqueuedByLocalId ?? {};
+              return {
+                ...m,
+                orchestratorEnqueuedByLocalId: { ...prev, ...localIdToIssueId },
+              };
+            }),
+          };
+        }),
+      }))
+    );
+  },
+
   registerChatStream: (workspaceId, streamId, convId) => {
     set((s) => ({
       streamToConv: { ...s.streamToConv, [streamId]: { workspaceId, convId } },
@@ -458,6 +497,17 @@ export const useConvStore = create<ConvStoreState>((set, get) => ({
         content: "",
         createdAt: new Date().toISOString(),
         planItems: p.issues,
+      });
+      return;
+    }
+
+    if (kind === "orchestrator_proposal" && p.tasks?.length) {
+      c.addMessage(workspaceId, convId, {
+        id: `orch_${Date.now()}`,
+        role: "orchestrator_proposal",
+        content: "",
+        createdAt: new Date().toISOString(),
+        proposedTasks: p.tasks,
       });
       return;
     }

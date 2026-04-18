@@ -22,8 +22,10 @@ export interface TaskMessage {
   task_id: string;
   issue_id: string;
   content: string;
-  kind: "text" | "tool" | "status";
+  kind: "text" | "tool" | "tool_use" | "tool_result" | "thinking" | "status";
   tool?: string;
+  /** JSON string of tool arguments (tool_use). */
+  tool_input?: string;
   /** Present when emitted by server — use for cache keys when UI workspace differs from event workspace. */
   workspace_id?: string;
 }

@@ -75,7 +75,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 
 	b.cfg.Logger.Info("claude started", "pid", cmd.Process.Pid, "cwd", opts.Cwd, "model", opts.Model)
 
-	msgCh := make(chan Message, 256)
+	msgCh := make(chan Message, 2048)
 	resCh := make(chan Result, 1)
 
 	go func() {
@@ -113,7 +113,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 				if msg.SessionID != "" {
 					sessionID = msg.SessionID
 				}
-				trySend(msgCh, Message{Type: MessageStatus, Status: "running"})
+				sendSessionMsg(msgCh, Message{Type: MessageStatus, Status: "running"})
 			case "result":
 				closeStdin()
 				sessionID = msg.SessionID
@@ -127,7 +127,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 				}
 			case "log":
 				if msg.Log != nil {
-					trySend(msgCh, Message{
+					sendSessionMsg(msgCh, Message{
 						Type:    MessageLog,
 						Level:   msg.Log.Level,
 						Content: msg.Log.Message,
@@ -187,18 +187,18 @@ func (b *claudeBackend) handleAssistant(msg claudeSDKMessage, ch chan<- Message,
 		case "text":
 			if block.Text != "" {
 				output.WriteString(block.Text)
-				trySend(ch, Message{Type: MessageText, Content: block.Text})
+				sendSessionMsg(ch, Message{Type: MessageText, Content: block.Text})
 			}
 		case "thinking":
 			if block.Text != "" {
-				trySend(ch, Message{Type: MessageThinking, Content: block.Text})
+				sendSessionMsg(ch, Message{Type: MessageThinking, Content: block.Text})
 			}
 		case "tool_use":
 			var input map[string]any
 			if block.Input != nil {
 				_ = json.Unmarshal(block.Input, &input)
 			}
-			trySend(ch, Message{
+			sendSessionMsg(ch, Message{
 				Type:   MessageToolUse,
 				Tool:   block.Name,
 				CallID: block.ID,
@@ -220,7 +220,7 @@ func (b *claudeBackend) handleUser(msg claudeSDKMessage, ch chan<- Message) {
 			if block.Content != nil {
 				resultStr = string(block.Content)
 			}
-			trySend(ch, Message{
+			sendSessionMsg(ch, Message{
 				Type:   MessageToolResult,
 				CallID: block.ToolUseID,
 				Output: resultStr,
@@ -326,13 +326,11 @@ type claudeControlRequestPayload struct {
 
 // ── Shared helpers ──
 
-func trySend(ch chan<- Message, msg Message) {
-	select {
-	case ch <- msg:
-	default:
-		// Channel full — drop message. Final output is accumulated separately
-		// in Result.Output, so only streaming consumers are affected.
-	}
+// sendSessionMsg delivers a message to the session channel, blocking until there is
+// capacity. Non-blocking drops caused backpressure to fail silently (channel full →
+// dropped deltas) while the HTTP handler was slow to broadcast over WebSockets.
+func sendSessionMsg(ch chan<- Message, msg Message) {
+	ch <- msg
 }
 
 func buildClaudeArgs(opts ExecOptions) []string {

@@ -1,31 +1,31 @@
 -- name: ListIssues :many
 SELECT * FROM issues
-WHERE workspace_id = $1
+WHERE workspace_id = ?
 ORDER BY position ASC, created_at DESC;
 
 -- name: ListIssuesByStatus :many
 SELECT * FROM issues
-WHERE workspace_id = $1 AND status = $2
+WHERE workspace_id = ? AND status = ?
 ORDER BY position ASC, created_at DESC;
 
 -- name: GetIssue :one
-SELECT * FROM issues WHERE id = $1;
+SELECT * FROM issues WHERE id = ?;
 
 -- name: NextIssueNumber :one
 INSERT INTO workspace_issue_sequences (workspace_id, next_number)
-VALUES ($1, 2)
-ON CONFLICT (workspace_id) DO UPDATE
-  SET next_number = workspace_issue_sequences.next_number + 1
+VALUES (?, 2)
+ON CONFLICT (workspace_id) DO UPDATE SET
+  next_number = workspace_issue_sequences.next_number + 1
 RETURNING next_number - 1 AS number;
 
 -- name: CreateIssue :one
 INSERT INTO issues (
-    workspace_id, number, title, description,
+    id, workspace_id, number, title, description,
     status, priority, assignee_type, agent_assignee_id, user_assignee_id,
     created_by_id, position
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    COALESCE((SELECT MAX(position) FROM issues WHERE workspace_id = $1), 0) + 1
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    COALESCE((SELECT MAX(i.position) FROM issues i WHERE i.workspace_id = ?), 0) + 1
 )
 RETURNING *;
 
@@ -39,12 +39,12 @@ UPDATE issues SET
     agent_assignee_id = sqlc.narg(agent_assignee_id),
     user_assignee_id = sqlc.narg(user_assignee_id),
     position     = COALESCE(sqlc.narg(position), position),
-    updated_at   = NOW()
+    updated_at   = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: DeleteIssue :exec
-DELETE FROM issues WHERE id = $1;
+DELETE FROM issues WHERE id = ?;
 
 -- name: UpdateIssueStatus :one
-UPDATE issues SET status = $2, updated_at = NOW() WHERE id = $1 RETURNING *;
+UPDATE issues SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING *;

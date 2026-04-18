@@ -12,6 +12,22 @@ files:
   - out/**/*
   - package.json
 
+# embedded-postgres ships native binaries; keep them outside the asar archive.
+asarUnpack:
+  - node_modules/embedded-postgres/**/*
+  - node_modules/@embedded-postgres/**/*
+
+# Built in CI: Go server + migrate, and SQL migrations (see .github/workflows/release.yml).
+extraResources:
+  - from: resources/bundled-bin
+    to: bin
+    filter:
+      - "**/*"
+  - from: resources/bundled-migrations
+    to: migrations
+    filter:
+      - "**/*"
+
 # Publish configuration (GitHub Releases)
 publish:
   provider: github

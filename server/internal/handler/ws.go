@@ -8,6 +8,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Serialize WebSocket writes: gorilla/websocket allows at most one concurrent writer
+// per connection. Concurrent Broadcast calls must not call WriteMessage in parallel
+// on the same conn.
+var broadcastWriteMu sync.Mutex
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(_ *http.Request) bool { return true },
 }
@@ -37,8 +42,15 @@ func (h *wsHub) remove(c *websocket.Conn) {
 // Broadcast sends a message to all connected clients.
 func Broadcast(msg []byte) {
 	hub.mu.RLock()
-	defer hub.mu.RUnlock()
+	clients := make([]*websocket.Conn, 0, len(hub.clients))
 	for c := range hub.clients {
+		clients = append(clients, c)
+	}
+	hub.mu.RUnlock()
+
+	broadcastWriteMu.Lock()
+	defer broadcastWriteMu.Unlock()
+	for _, c := range clients {
 		_ = c.WriteMessage(websocket.TextMessage, msg)
 	}
 }

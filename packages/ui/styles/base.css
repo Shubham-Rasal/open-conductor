@@ -2,6 +2,19 @@
  * Open Conductor shared base styles — imported by all apps
  * ============================================================================= */
 
+@keyframes oc-chat-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+.oc-chat-progress-bar {
+  animation: oc-chat-progress 1.25s ease-in-out infinite;
+}
+
 /* Shiki dual themes: CSS-only light/dark switching via CSS variables */
 .shiki,
 .shiki span {

@@ -7,37 +7,39 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 const createIssue = `-- name: CreateIssue :one
 INSERT INTO issues (
-    workspace_id, number, title, description,
+    id, workspace_id, number, title, description,
     status, priority, assignee_type, agent_assignee_id, user_assignee_id,
     created_by_id, position
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    COALESCE((SELECT MAX(position) FROM issues WHERE workspace_id = $1), 0) + 1
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    COALESCE((SELECT MAX(i.position) FROM issues i WHERE i.workspace_id = ?), 0) + 1
 )
-RETURNING id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id
+RETURNING id, workspace_id, number, title, description, status, priority, assignee_type, position, agent_assignee_id, user_assignee_id, created_by_id, created_at, updated_at
 `
 
 type CreateIssueParams struct {
-	WorkspaceID     pgtype.UUID `json:"workspace_id"`
-	Number          *int32      `json:"number"`
-	Title           string      `json:"title"`
-	Description     *string     `json:"description"`
-	Status          string      `json:"status"`
-	Priority        string      `json:"priority"`
-	AssigneeType    *string     `json:"assignee_type"`
-	AgentAssigneeID pgtype.UUID `json:"agent_assignee_id"`
-	UserAssigneeID  pgtype.UUID `json:"user_assignee_id"`
-	CreatedByID     pgtype.UUID `json:"created_by_id"`
+	ID              string         `json:"id"`
+	WorkspaceID     string         `json:"workspace_id"`
+	Number          sql.NullInt64  `json:"number"`
+	Title           string         `json:"title"`
+	Description     sql.NullString `json:"description"`
+	Status          string         `json:"status"`
+	Priority        string         `json:"priority"`
+	AssigneeType    sql.NullString `json:"assignee_type"`
+	AgentAssigneeID sql.NullString `json:"agent_assignee_id"`
+	UserAssigneeID  sql.NullString `json:"user_assignee_id"`
+	CreatedByID     string         `json:"created_by_id"`
+	WorkspaceID_2   string         `json:"workspace_id_2"`
 }
 
 func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error) {
-	row := q.db.QueryRow(ctx, createIssue,
+	row := q.db.QueryRowContext(ctx, createIssue,
+		arg.ID,
 		arg.WorkspaceID,
 		arg.Number,
 		arg.Title,
@@ -48,70 +50,71 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		arg.AgentAssigneeID,
 		arg.UserAssigneeID,
 		arg.CreatedByID,
+		arg.WorkspaceID_2,
 	)
 	var i Issue
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.Number,
 		&i.Title,
 		&i.Description,
 		&i.Status,
 		&i.Priority,
-		&i.CreatedByID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Number,
 		&i.AssigneeType,
 		&i.Position,
 		&i.AgentAssigneeID,
 		&i.UserAssigneeID,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const deleteIssue = `-- name: DeleteIssue :exec
-DELETE FROM issues WHERE id = $1
+DELETE FROM issues WHERE id = ?
 `
 
-func (q *Queries) DeleteIssue(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteIssue, id)
+func (q *Queries) DeleteIssue(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteIssue, id)
 	return err
 }
 
 const getIssue = `-- name: GetIssue :one
-SELECT id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id FROM issues WHERE id = $1
+SELECT id, workspace_id, number, title, description, status, priority, assignee_type, position, agent_assignee_id, user_assignee_id, created_by_id, created_at, updated_at FROM issues WHERE id = ?
 `
 
-func (q *Queries) GetIssue(ctx context.Context, id pgtype.UUID) (Issue, error) {
-	row := q.db.QueryRow(ctx, getIssue, id)
+func (q *Queries) GetIssue(ctx context.Context, id string) (Issue, error) {
+	row := q.db.QueryRowContext(ctx, getIssue, id)
 	var i Issue
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.Number,
 		&i.Title,
 		&i.Description,
 		&i.Status,
 		&i.Priority,
-		&i.CreatedByID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Number,
 		&i.AssigneeType,
 		&i.Position,
 		&i.AgentAssigneeID,
 		&i.UserAssigneeID,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listIssues = `-- name: ListIssues :many
-SELECT id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id FROM issues
-WHERE workspace_id = $1
+SELECT id, workspace_id, number, title, description, status, priority, assignee_type, position, agent_assignee_id, user_assignee_id, created_by_id, created_at, updated_at FROM issues
+WHERE workspace_id = ?
 ORDER BY position ASC, created_at DESC
 `
 
-func (q *Queries) ListIssues(ctx context.Context, workspaceID pgtype.UUID) ([]Issue, error) {
-	rows, err := q.db.Query(ctx, listIssues, workspaceID)
+func (q *Queries) ListIssues(ctx context.Context, workspaceID string) ([]Issue, error) {
+	rows, err := q.db.QueryContext(ctx, listIssues, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,22 +125,25 @@ func (q *Queries) ListIssues(ctx context.Context, workspaceID pgtype.UUID) ([]Is
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
+			&i.Number,
 			&i.Title,
 			&i.Description,
 			&i.Status,
 			&i.Priority,
-			&i.CreatedByID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Number,
 			&i.AssigneeType,
 			&i.Position,
 			&i.AgentAssigneeID,
 			&i.UserAssigneeID,
+			&i.CreatedByID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -146,18 +152,18 @@ func (q *Queries) ListIssues(ctx context.Context, workspaceID pgtype.UUID) ([]Is
 }
 
 const listIssuesByStatus = `-- name: ListIssuesByStatus :many
-SELECT id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id FROM issues
-WHERE workspace_id = $1 AND status = $2
+SELECT id, workspace_id, number, title, description, status, priority, assignee_type, position, agent_assignee_id, user_assignee_id, created_by_id, created_at, updated_at FROM issues
+WHERE workspace_id = ? AND status = ?
 ORDER BY position ASC, created_at DESC
 `
 
 type ListIssuesByStatusParams struct {
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	Status      string      `json:"status"`
+	WorkspaceID string `json:"workspace_id"`
+	Status      string `json:"status"`
 }
 
 func (q *Queries) ListIssuesByStatus(ctx context.Context, arg ListIssuesByStatusParams) ([]Issue, error) {
-	rows, err := q.db.Query(ctx, listIssuesByStatus, arg.WorkspaceID, arg.Status)
+	rows, err := q.db.QueryContext(ctx, listIssuesByStatus, arg.WorkspaceID, arg.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -168,22 +174,25 @@ func (q *Queries) ListIssuesByStatus(ctx context.Context, arg ListIssuesByStatus
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
+			&i.Number,
 			&i.Title,
 			&i.Description,
 			&i.Status,
 			&i.Priority,
-			&i.CreatedByID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Number,
 			&i.AssigneeType,
 			&i.Position,
 			&i.AgentAssigneeID,
 			&i.UserAssigneeID,
+			&i.CreatedByID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -193,48 +202,48 @@ func (q *Queries) ListIssuesByStatus(ctx context.Context, arg ListIssuesByStatus
 
 const nextIssueNumber = `-- name: NextIssueNumber :one
 INSERT INTO workspace_issue_sequences (workspace_id, next_number)
-VALUES ($1, 2)
-ON CONFLICT (workspace_id) DO UPDATE
-  SET next_number = workspace_issue_sequences.next_number + 1
+VALUES (?, 2)
+ON CONFLICT (workspace_id) DO UPDATE SET
+  next_number = workspace_issue_sequences.next_number + 1
 RETURNING next_number - 1 AS number
 `
 
-func (q *Queries) NextIssueNumber(ctx context.Context, workspaceID pgtype.UUID) (int32, error) {
-	row := q.db.QueryRow(ctx, nextIssueNumber, workspaceID)
-	var number int32
-	err := row.Scan(&number)
-	return number, err
+func (q *Queries) NextIssueNumber(ctx context.Context, workspaceID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextIssueNumber, workspaceID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const updateIssue = `-- name: UpdateIssue :one
 UPDATE issues SET
-    title        = COALESCE($1, title),
-    description  = COALESCE($2, description),
-    status       = COALESCE($3, status),
-    priority     = COALESCE($4, priority),
-    assignee_type = $5,
-    agent_assignee_id = $6,
-    user_assignee_id = $7,
-    position     = COALESCE($8, position),
-    updated_at   = NOW()
-WHERE id = $9
-RETURNING id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id
+    title        = COALESCE(?1, title),
+    description  = COALESCE(?2, description),
+    status       = COALESCE(?3, status),
+    priority     = COALESCE(?4, priority),
+    assignee_type = ?5,
+    agent_assignee_id = ?6,
+    user_assignee_id = ?7,
+    position     = COALESCE(?8, position),
+    updated_at   = CURRENT_TIMESTAMP
+WHERE id = ?9
+RETURNING id, workspace_id, number, title, description, status, priority, assignee_type, position, agent_assignee_id, user_assignee_id, created_by_id, created_at, updated_at
 `
 
 type UpdateIssueParams struct {
-	Title           *string     `json:"title"`
-	Description     *string     `json:"description"`
-	Status          *string     `json:"status"`
-	Priority        *string     `json:"priority"`
-	AssigneeType    *string     `json:"assignee_type"`
-	AgentAssigneeID pgtype.UUID `json:"agent_assignee_id"`
-	UserAssigneeID  pgtype.UUID `json:"user_assignee_id"`
-	Position        *float64    `json:"position"`
-	ID              pgtype.UUID `json:"id"`
+	Title           sql.NullString  `json:"title"`
+	Description     sql.NullString  `json:"description"`
+	Status          sql.NullString  `json:"status"`
+	Priority        sql.NullString  `json:"priority"`
+	AssigneeType    sql.NullString  `json:"assignee_type"`
+	AgentAssigneeID sql.NullString  `json:"agent_assignee_id"`
+	UserAssigneeID  sql.NullString  `json:"user_assignee_id"`
+	Position        sql.NullFloat64 `json:"position"`
+	ID              string          `json:"id"`
 }
 
 func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue, error) {
-	row := q.db.QueryRow(ctx, updateIssue,
+	row := q.db.QueryRowContext(ctx, updateIssue,
 		arg.Title,
 		arg.Description,
 		arg.Status,
@@ -249,49 +258,49 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.Number,
 		&i.Title,
 		&i.Description,
 		&i.Status,
 		&i.Priority,
-		&i.CreatedByID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Number,
 		&i.AssigneeType,
 		&i.Position,
 		&i.AgentAssigneeID,
 		&i.UserAssigneeID,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const updateIssueStatus = `-- name: UpdateIssueStatus :one
-UPDATE issues SET status = $2, updated_at = NOW() WHERE id = $1 RETURNING id, workspace_id, title, description, status, priority, created_by_id, created_at, updated_at, number, assignee_type, position, agent_assignee_id, user_assignee_id
+UPDATE issues SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING id, workspace_id, number, title, description, status, priority, assignee_type, position, agent_assignee_id, user_assignee_id, created_by_id, created_at, updated_at
 `
 
 type UpdateIssueStatusParams struct {
-	ID     pgtype.UUID `json:"id"`
-	Status string      `json:"status"`
+	Status string `json:"status"`
+	ID     string `json:"id"`
 }
 
 func (q *Queries) UpdateIssueStatus(ctx context.Context, arg UpdateIssueStatusParams) (Issue, error) {
-	row := q.db.QueryRow(ctx, updateIssueStatus, arg.ID, arg.Status)
+	row := q.db.QueryRowContext(ctx, updateIssueStatus, arg.Status, arg.ID)
 	var i Issue
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.Number,
 		&i.Title,
 		&i.Description,
 		&i.Status,
 		&i.Priority,
-		&i.CreatedByID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Number,
 		&i.AssigneeType,
 		&i.Position,
 		&i.AgentAssigneeID,
 		&i.UserAssigneeID,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

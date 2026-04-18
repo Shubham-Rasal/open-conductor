@@ -22,6 +22,15 @@ export interface User {
   created_at: string;
 }
 
+export interface WorkspaceEnvVar {
+  id: string;
+  workspace_id: string;
+  key: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface WorkspaceMemberRow {
   workspace_id: string;
   user_id: string;

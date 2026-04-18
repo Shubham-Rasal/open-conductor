@@ -5,120 +5,130 @@
 package db
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
+	"time"
 )
 
 type Agent struct {
-	ID                 pgtype.UUID        `json:"id"`
-	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
-	Name               string             `json:"name"`
-	Instructions       string             `json:"instructions"`
-	Status             string             `json:"status"`
-	MaxConcurrentTasks int32              `json:"max_concurrent_tasks"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	Model              *string            `json:"model"`
-	SpawnMode          string             `json:"spawn_mode"`
+	ID                 string         `json:"id"`
+	WorkspaceID        string         `json:"workspace_id"`
+	Name               string         `json:"name"`
+	Instructions       string         `json:"instructions"`
+	Status             string         `json:"status"`
+	MaxConcurrentTasks int64          `json:"max_concurrent_tasks"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+	Model              sql.NullString `json:"model"`
+	SpawnMode          string         `json:"spawn_mode"`
 }
 
 type AgentRuntime struct {
-	ID          pgtype.UUID        `json:"id"`
-	AgentID     pgtype.UUID        `json:"agent_id"`
-	Provider    string             `json:"provider"`
-	Status      string             `json:"status"`
-	DeviceName  *string            `json:"device_name"`
-	LastSeenAt  pgtype.Timestamptz `json:"last_seen_at"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	ID          string         `json:"id"`
+	AgentID     string         `json:"agent_id"`
+	WorkspaceID string         `json:"workspace_id"`
+	Provider    string         `json:"provider"`
+	Status      string         `json:"status"`
+	DeviceName  sql.NullString `json:"device_name"`
+	LastSeenAt  sql.NullTime   `json:"last_seen_at"`
+	CreatedAt   time.Time      `json:"created_at"`
 }
 
 type AgentTaskQueue struct {
-	ID               pgtype.UUID        `json:"id"`
-	AgentID          pgtype.UUID        `json:"agent_id"`
-	IssueID          pgtype.UUID        `json:"issue_id"`
-	ChatSessionID    pgtype.UUID        `json:"chat_session_id"`
-	Status           string             `json:"status"`
-	Priority         int32              `json:"priority"`
-	Output           *string            `json:"output"`
-	ErrorMessage     *string            `json:"error_message"`
-	SessionID        *string            `json:"session_id"`
-	WorkDir          *string            `json:"work_dir"`
-	BranchName       *string            `json:"branch_name"`
-	TriggerCommentID pgtype.UUID        `json:"trigger_comment_id"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	StartedAt        pgtype.Timestamptz `json:"started_at"`
-	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
-	WorkspaceID      pgtype.UUID        `json:"workspace_id"`
+	ID               string         `json:"id"`
+	AgentID          string         `json:"agent_id"`
+	IssueID          sql.NullString `json:"issue_id"`
+	ChatSessionID    sql.NullString `json:"chat_session_id"`
+	Status           string         `json:"status"`
+	Priority         int64          `json:"priority"`
+	Output           sql.NullString `json:"output"`
+	ErrorMessage     sql.NullString `json:"error_message"`
+	SessionID        sql.NullString `json:"session_id"`
+	WorkDir          sql.NullString `json:"work_dir"`
+	BranchName       sql.NullString `json:"branch_name"`
+	TriggerCommentID sql.NullString `json:"trigger_comment_id"`
+	CreatedAt        time.Time      `json:"created_at"`
+	StartedAt        sql.NullTime   `json:"started_at"`
+	CompletedAt      sql.NullTime   `json:"completed_at"`
+	WorkspaceID      string         `json:"workspace_id"`
 }
 
 type Comment struct {
-	ID         pgtype.UUID        `json:"id"`
-	IssueID    pgtype.UUID        `json:"issue_id"`
-	AuthorID   pgtype.UUID        `json:"author_id"`
-	Content    string             `json:"content"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
-	AuthorType string             `json:"author_type"`
+	ID         string    `json:"id"`
+	IssueID    string    `json:"issue_id"`
+	AuthorID   string    `json:"author_id"`
+	Content    string    `json:"content"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	AuthorType string    `json:"author_type"`
 }
 
 type Issue struct {
-	ID              pgtype.UUID        `json:"id"`
-	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
-	Title           string             `json:"title"`
-	Description     *string            `json:"description"`
-	Status          string             `json:"status"`
-	Priority        string             `json:"priority"`
-	CreatedByID     pgtype.UUID        `json:"created_by_id"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	Number          *int32             `json:"number"`
-	AssigneeType    *string            `json:"assignee_type"`
-	Position        float64            `json:"position"`
-	AgentAssigneeID pgtype.UUID        `json:"agent_assignee_id"`
-	UserAssigneeID  pgtype.UUID        `json:"user_assignee_id"`
+	ID              string         `json:"id"`
+	WorkspaceID     string         `json:"workspace_id"`
+	Number          sql.NullInt64  `json:"number"`
+	Title           string         `json:"title"`
+	Description     sql.NullString `json:"description"`
+	Status          string         `json:"status"`
+	Priority        string         `json:"priority"`
+	AssigneeType    sql.NullString `json:"assignee_type"`
+	Position        float64        `json:"position"`
+	AgentAssigneeID sql.NullString `json:"agent_assignee_id"`
+	UserAssigneeID  sql.NullString `json:"user_assignee_id"`
+	CreatedByID     string         `json:"created_by_id"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
 type User struct {
-	ID           pgtype.UUID        `json:"id"`
-	Email        string             `json:"email"`
-	Name         string             `json:"name"`
-	AvatarUrl    *string            `json:"avatar_url"`
-	PasswordHash string             `json:"password_hash"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ID           string         `json:"id"`
+	Email        string         `json:"email"`
+	Name         string         `json:"name"`
+	AvatarUrl    sql.NullString `json:"avatar_url"`
+	PasswordHash string         `json:"password_hash"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 type Workspace struct {
-	ID               pgtype.UUID        `json:"id"`
-	Name             string             `json:"name"`
-	Slug             string             `json:"slug"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
-	Prefix           string             `json:"prefix"`
-	Description      *string            `json:"description"`
-	Type             string             `json:"type"`
-	ConnectionUrl    *string            `json:"connection_url"`
-	WorkingDirectory *string            `json:"working_directory"`
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	Slug             string         `json:"slug"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	Prefix           string         `json:"prefix"`
+	Description      sql.NullString `json:"description"`
+	Type             string         `json:"type"`
+	ConnectionUrl    sql.NullString `json:"connection_url"`
+	WorkingDirectory sql.NullString `json:"working_directory"`
+}
+
+type WorkspaceEnvVar struct {
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspace_id"`
+	Key         string    `json:"key"`
+	Value       string    `json:"value"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type WorkspaceIssueSequence struct {
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	NextNumber  int32       `json:"next_number"`
+	WorkspaceID string `json:"workspace_id"`
+	NextNumber  int64  `json:"next_number"`
 }
 
 type WorkspaceMember struct {
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	Role        string             `json:"role"`
-	JoinedAt    pgtype.Timestamptz `json:"joined_at"`
+	WorkspaceID string    `json:"workspace_id"`
+	UserID      string    `json:"user_id"`
+	Role        string    `json:"role"`
+	JoinedAt    time.Time `json:"joined_at"`
 }
 
 type WorkspaceMessage struct {
-	ID          pgtype.UUID        `json:"id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	AuthorType  string             `json:"author_type"`
-	AuthorID    pgtype.UUID        `json:"author_id"`
-	Content     string             `json:"content"`
-	Metadata    []byte             `json:"metadata"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID          string         `json:"id"`
+	WorkspaceID string         `json:"workspace_id"`
+	AuthorType  string         `json:"author_type"`
+	AuthorID    sql.NullString `json:"author_id"`
+	Content     string         `json:"content"`
+	Metadata    []byte         `json:"metadata"`
+	CreatedAt   time.Time      `json:"created_at"`
 }

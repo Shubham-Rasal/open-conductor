@@ -59,7 +59,7 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 
 	b.cfg.Logger.Info("codex started app-server", "pid", cmd.Process.Pid, "cwd", opts.Cwd)
 
-	msgCh := make(chan Message, 256)
+	msgCh := make(chan Message, 2048)
 	resCh := make(chan Result, 1)
 
 	var outputMu sync.Mutex
@@ -80,7 +80,7 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 				output.WriteString(msg.Content)
 				outputMu.Unlock()
 			}
-			trySend(msgCh, msg)
+			sendSessionMsg(msgCh, msg)
 		},
 		onTurnDone: func(aborted bool) {
 			select {

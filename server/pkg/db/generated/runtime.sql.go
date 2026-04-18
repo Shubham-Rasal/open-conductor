@@ -7,42 +7,52 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
+	"strings"
 )
 
 const getAgentRuntimeByAgentAndWorkspace = `-- name: GetAgentRuntimeByAgentAndWorkspace :one
-SELECT id, agent_id, provider, status, device_name, last_seen_at, created_at, workspace_id FROM agent_runtimes WHERE agent_id = $1 AND workspace_id = $2 LIMIT 1
+SELECT id, agent_id, workspace_id, provider, status, device_name, last_seen_at, created_at FROM agent_runtimes WHERE agent_id = ? AND workspace_id = ? LIMIT 1
 `
 
 type GetAgentRuntimeByAgentAndWorkspaceParams struct {
-	AgentID     pgtype.UUID `json:"agent_id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	AgentID     string `json:"agent_id"`
+	WorkspaceID string `json:"workspace_id"`
 }
 
 func (q *Queries) GetAgentRuntimeByAgentAndWorkspace(ctx context.Context, arg GetAgentRuntimeByAgentAndWorkspaceParams) (AgentRuntime, error) {
-	row := q.db.QueryRow(ctx, getAgentRuntimeByAgentAndWorkspace, arg.AgentID, arg.WorkspaceID)
+	row := q.db.QueryRowContext(ctx, getAgentRuntimeByAgentAndWorkspace, arg.AgentID, arg.WorkspaceID)
 	var i AgentRuntime
 	err := row.Scan(
 		&i.ID,
 		&i.AgentID,
+		&i.WorkspaceID,
 		&i.Provider,
 		&i.Status,
 		&i.DeviceName,
 		&i.LastSeenAt,
 		&i.CreatedAt,
-		&i.WorkspaceID,
 	)
 	return i, err
 }
 
 const listAgentRuntimes = `-- name: ListAgentRuntimes :many
-SELECT id, agent_id, provider, status, device_name, last_seen_at, created_at, workspace_id FROM agent_runtimes
-WHERE agent_id = ANY($1::uuid[])
+SELECT id, agent_id, workspace_id, provider, status, device_name, last_seen_at, created_at FROM agent_runtimes
+WHERE agent_id IN (/*SLICE:agent_ids*/?)
 `
 
-func (q *Queries) ListAgentRuntimes(ctx context.Context, agentIds []pgtype.UUID) ([]AgentRuntime, error) {
-	rows, err := q.db.Query(ctx, listAgentRuntimes, agentIds)
+func (q *Queries) ListAgentRuntimes(ctx context.Context, agentIds []string) ([]AgentRuntime, error) {
+	query := listAgentRuntimes
+	var queryParams []interface{}
+	if len(agentIds) > 0 {
+		for _, v := range agentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:agent_ids*/?", strings.Repeat(",?", len(agentIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:agent_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
@@ -53,16 +63,19 @@ func (q *Queries) ListAgentRuntimes(ctx context.Context, agentIds []pgtype.UUID)
 		if err := rows.Scan(
 			&i.ID,
 			&i.AgentID,
+			&i.WorkspaceID,
 			&i.Provider,
 			&i.Status,
 			&i.DeviceName,
 			&i.LastSeenAt,
 			&i.CreatedAt,
-			&i.WorkspaceID,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -73,66 +86,68 @@ func (q *Queries) ListAgentRuntimes(ctx context.Context, agentIds []pgtype.UUID)
 const markAgentRuntimeOffline = `-- name: MarkAgentRuntimeOffline :exec
 UPDATE agent_runtimes
 SET status = 'offline'
-WHERE last_seen_at < NOW() - INTERVAL '90 seconds'
+WHERE datetime(last_seen_at) < datetime('now', '-90 seconds')
   AND status = 'online'
 `
 
 func (q *Queries) MarkAgentRuntimeOffline(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, markAgentRuntimeOffline)
+	_, err := q.db.ExecContext(ctx, markAgentRuntimeOffline)
 	return err
 }
 
 const setAgentRuntimeOfflineByAgent = `-- name: SetAgentRuntimeOfflineByAgent :exec
-UPDATE agent_runtimes SET status = 'offline' WHERE agent_id = $1 AND workspace_id = $2
+UPDATE agent_runtimes SET status = 'offline' WHERE agent_id = ? AND workspace_id = ?
 `
 
 type SetAgentRuntimeOfflineByAgentParams struct {
-	AgentID     pgtype.UUID `json:"agent_id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	AgentID     string `json:"agent_id"`
+	WorkspaceID string `json:"workspace_id"`
 }
 
 func (q *Queries) SetAgentRuntimeOfflineByAgent(ctx context.Context, arg SetAgentRuntimeOfflineByAgentParams) error {
-	_, err := q.db.Exec(ctx, setAgentRuntimeOfflineByAgent, arg.AgentID, arg.WorkspaceID)
+	_, err := q.db.ExecContext(ctx, setAgentRuntimeOfflineByAgent, arg.AgentID, arg.WorkspaceID)
 	return err
 }
 
 const updateAgentRuntimeHeartbeat = `-- name: UpdateAgentRuntimeHeartbeat :exec
 UPDATE agent_runtimes
-SET last_seen_at = NOW()
-WHERE agent_id = $1 AND workspace_id = $2 AND status = 'online'
+SET last_seen_at = CURRENT_TIMESTAMP
+WHERE agent_id = ? AND workspace_id = ? AND status = 'online'
 `
 
 type UpdateAgentRuntimeHeartbeatParams struct {
-	AgentID     pgtype.UUID `json:"agent_id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	AgentID     string `json:"agent_id"`
+	WorkspaceID string `json:"workspace_id"`
 }
 
 func (q *Queries) UpdateAgentRuntimeHeartbeat(ctx context.Context, arg UpdateAgentRuntimeHeartbeatParams) error {
-	_, err := q.db.Exec(ctx, updateAgentRuntimeHeartbeat, arg.AgentID, arg.WorkspaceID)
+	_, err := q.db.ExecContext(ctx, updateAgentRuntimeHeartbeat, arg.AgentID, arg.WorkspaceID)
 	return err
 }
 
 const upsertAgentRuntime = `-- name: UpsertAgentRuntime :one
-INSERT INTO agent_runtimes (agent_id, workspace_id, provider, status, device_name, last_seen_at)
-VALUES ($1, $2, $3, 'online', $4, NOW())
+INSERT INTO agent_runtimes (id, agent_id, workspace_id, provider, status, device_name, last_seen_at)
+VALUES (?, ?, ?, ?, 'online', ?, CURRENT_TIMESTAMP)
 ON CONFLICT (agent_id, workspace_id)
 DO UPDATE SET
-    provider     = EXCLUDED.provider,
+    provider     = excluded.provider,
     status       = 'online',
-    device_name  = EXCLUDED.device_name,
-    last_seen_at = NOW()
-RETURNING id, agent_id, provider, status, device_name, last_seen_at, created_at, workspace_id
+    device_name  = excluded.device_name,
+    last_seen_at = CURRENT_TIMESTAMP
+RETURNING id, agent_id, workspace_id, provider, status, device_name, last_seen_at, created_at
 `
 
 type UpsertAgentRuntimeParams struct {
-	AgentID     pgtype.UUID `json:"agent_id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	Provider    string      `json:"provider"`
-	DeviceName  *string     `json:"device_name"`
+	ID          string         `json:"id"`
+	AgentID     string         `json:"agent_id"`
+	WorkspaceID string         `json:"workspace_id"`
+	Provider    string         `json:"provider"`
+	DeviceName  sql.NullString `json:"device_name"`
 }
 
 func (q *Queries) UpsertAgentRuntime(ctx context.Context, arg UpsertAgentRuntimeParams) (AgentRuntime, error) {
-	row := q.db.QueryRow(ctx, upsertAgentRuntime,
+	row := q.db.QueryRowContext(ctx, upsertAgentRuntime,
+		arg.ID,
 		arg.AgentID,
 		arg.WorkspaceID,
 		arg.Provider,
@@ -142,12 +157,12 @@ func (q *Queries) UpsertAgentRuntime(ctx context.Context, arg UpsertAgentRuntime
 	err := row.Scan(
 		&i.ID,
 		&i.AgentID,
+		&i.WorkspaceID,
 		&i.Provider,
 		&i.Status,
 		&i.DeviceName,
 		&i.LastSeenAt,
 		&i.CreatedAt,
-		&i.WorkspaceID,
 	)
 	return i, err
 }

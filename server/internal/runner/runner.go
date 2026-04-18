@@ -100,6 +100,27 @@ func (reg *Registry) Stop(runtimeID pgtype.UUID) {
 	}
 }
 
+// StopAndWait cancels the runner and blocks until the registry slot is free (or timeout),
+// so Start can safely run again without no-oping while the old goroutine is still shutting down.
+func (reg *Registry) StopAndWait(runtimeID pgtype.UUID, timeout time.Duration) bool {
+	reg.Stop(runtimeID)
+	if !runtimeID.Valid {
+		return true
+	}
+	key := fmt.Sprintf("%x", runtimeID.Bytes)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		reg.mu.Lock()
+		_, busy := reg.running[key]
+		reg.mu.Unlock()
+		if !busy {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
+}
+
 // Runner claims and executes tasks for one agent runtime.
 type Runner struct {
 	q               *db.Queries
@@ -283,6 +304,19 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 
 	session, err := r.executor.Execute(execCtx, prompt, opts)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			if _, cErr := r.q.CancelTask(ctx, task.ID); cErr != nil && !errors.Is(cErr, pgx.ErrNoRows) {
+				slog.Warn("cancel task after abort", "task_id", taskIDStr, "err", cErr)
+			}
+			r.broadcastEvent("task:stage", map[string]any{
+				"task_id":      taskIDStr,
+				"issue_id":     issueIDStr,
+				"workspace_id": wsIDStr,
+				"stage":        "cancelled",
+			})
+			slog.Info("task aborted (context cancelled)", "task_id", taskIDStr)
+			return
+		}
 		slog.Error("executor execute", "err", err)
 		r.setIssueStatus(ctx, task, "blocked")
 		r.failTask(ctx, task.ID, issueIDStr, err.Error())
@@ -310,14 +344,43 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 					"kind":         "text",
 				})
 			}
+		case agentpkg.MessageThinking:
+			if strings.TrimSpace(msg.Content) != "" {
+				r.broadcastEvent("task:message", map[string]any{
+					"task_id":      taskIDStr,
+					"issue_id":     issueIDStr,
+					"workspace_id": wsIDStr,
+					"content":      msg.Content,
+					"kind":         "thinking",
+				})
+			}
 		case agentpkg.MessageToolUse:
+			payload := map[string]any{
+				"task_id":      taskIDStr,
+				"issue_id":     issueIDStr,
+				"workspace_id": wsIDStr,
+				"kind":         "tool_use",
+				"tool":         msg.Tool,
+				"content":      fmt.Sprintf("→ %s", msg.Tool),
+			}
+			if len(msg.Input) > 0 {
+				if b, err := json.Marshal(msg.Input); err == nil {
+					payload["tool_input"] = truncateTaskStream(string(b), 12000)
+				}
+			}
+			r.broadcastEvent("task:message", payload)
+		case agentpkg.MessageToolResult:
+			out := truncateTaskStream(msg.Output, 32000)
+			if strings.TrimSpace(out) == "" {
+				break
+			}
 			r.broadcastEvent("task:message", map[string]any{
 				"task_id":      taskIDStr,
 				"issue_id":     issueIDStr,
 				"workspace_id": wsIDStr,
-				"content":      fmt.Sprintf("Using tool: %s", msg.Tool),
-				"kind":         "tool",
+				"kind":         "tool_result",
 				"tool":         msg.Tool,
+				"content":      out,
 			})
 		case agentpkg.MessageStatus:
 			r.broadcastEvent("task:message", map[string]any{
@@ -396,6 +459,13 @@ func (r *Runner) broadcastEvent(eventType string, payload any) {
 	}
 	b, _ := json.Marshal(map[string]any{"type": eventType, "payload": payload})
 	r.broadcast(b)
+}
+
+func truncateTaskStream(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	return s[:maxBytes] + "\n… [truncated]"
 }
 
 func (r *Runner) buildPrompt(ctx context.Context, task db.AgentTaskQueue, workDir string) (string, error) {

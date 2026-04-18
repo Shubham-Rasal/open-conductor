@@ -1,5 +1,7 @@
 import { type ReactNode, useEffect, useState, useCallback } from "react";
 
+import { DesktopServerOnboarding } from "./DesktopServerOnboarding";
+
 const HEALTH_URL = "http://localhost:8080/health";
 const POLL_OFFLINE = 3_000;
 const POLL_ONLINE  = 30_000;
@@ -176,6 +178,10 @@ export function DashboardGuard({ children }: DashboardGuardProps) {
   }
 
   if (status === "offline") {
+    const electron = typeof window !== "undefined" ? window.electron : undefined;
+    if (electron?.setup?.getContext) {
+      return <DesktopServerOnboarding onConnected={recheck} />;
+    }
     return <ServerOffline onRetry={recheck} checking={false} />;
   }
 

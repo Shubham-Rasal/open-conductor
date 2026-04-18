@@ -7,24 +7,28 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (email, name, password_hash)
-VALUES ($1, $2, $3)
+INSERT INTO users (id, email, name, password_hash)
+VALUES (?, ?, ?, ?)
 RETURNING id, email, name, avatar_url, password_hash, created_at, updated_at
 `
 
 type CreateUserParams struct {
+	ID           string `json:"id"`
 	Email        string `json:"email"`
 	Name         string `json:"name"`
 	PasswordHash string `json:"password_hash"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, createUser, arg.Email, arg.Name, arg.PasswordHash)
+	row := q.db.QueryRowContext(ctx, createUser,
+		arg.ID,
+		arg.Email,
+		arg.Name,
+		arg.PasswordHash,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -39,11 +43,11 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, email, name, avatar_url, password_hash, created_at, updated_at FROM users WHERE id = $1
+SELECT id, email, name, avatar_url, password_hash, created_at, updated_at FROM users WHERE id = ?
 `
 
-func (q *Queries) GetUser(ctx context.Context, id pgtype.UUID) (User, error) {
-	row := q.db.QueryRow(ctx, getUser, id)
+func (q *Queries) GetUser(ctx context.Context, id string) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUser, id)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -58,11 +62,11 @@ func (q *Queries) GetUser(ctx context.Context, id pgtype.UUID) (User, error) {
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, name, avatar_url, password_hash, created_at, updated_at FROM users WHERE email = $1
+SELECT id, email, name, avatar_url, password_hash, created_at, updated_at FROM users WHERE email = ?
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
-	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	row := q.db.QueryRowContext(ctx, getUserByEmail, email)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -77,14 +81,14 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const upsertGuestUser = `-- name: UpsertGuestUser :one
-INSERT INTO users (email, name, password_hash)
-VALUES ('guest@local', 'Guest', '')
-ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+INSERT INTO users (id, email, name, password_hash)
+VALUES ('00000000-0000-4000-8000-000000000001', 'guest@local', 'Guest', '')
+ON CONFLICT (email) DO UPDATE SET name = excluded.name
 RETURNING id, email, name, avatar_url, password_hash, created_at, updated_at
 `
 
 func (q *Queries) UpsertGuestUser(ctx context.Context) (User, error) {
-	row := q.db.QueryRow(ctx, upsertGuestUser)
+	row := q.db.QueryRowContext(ctx, upsertGuestUser)
 	var i User
 	err := row.Scan(
 		&i.ID,

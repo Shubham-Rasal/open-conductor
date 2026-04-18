@@ -116,3 +116,18 @@ export function useCreateComment() {
     },
   });
 }
+
+/** Cancels queued/running agent tasks for the issue, stops the runner (kills in-flight CLI), and restarts the runner. */
+export function useStopIssueAgent() {
+  const { apiClient, workspaceId } = useCoreContext();
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (issueId: string) =>
+      apiClient.post<{ status: string }>(`/api/workspaces/${workspaceId}/issues/${issueId}/stop-agent`, {}),
+    onSettled: (_data, _err, issueId) => {
+      void qc.invalidateQueries({ queryKey: issueKeys.tasks(workspaceId, issueId) });
+      void qc.invalidateQueries({ queryKey: issueKeys.detail(workspaceId, issueId) });
+    },
+  });
+}

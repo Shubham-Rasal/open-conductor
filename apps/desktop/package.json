@@ -20,6 +20,7 @@
     "@open-conductor/views": "workspace:*",
     "@tailwindcss/vite": "^4.2.2",
     "electron-updater": "^6.6.2",
+    "embedded-postgres": "18.3.0-beta.17",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.5.2",

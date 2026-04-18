@@ -7,26 +7,27 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
 )
 
 const createWorkspaceMessage = `-- name: CreateWorkspaceMessage :one
-INSERT INTO workspace_messages (workspace_id, author_type, author_id, content, metadata)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO workspace_messages (id, workspace_id, author_type, author_id, content, metadata)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id, workspace_id, author_type, author_id, content, metadata, created_at
 `
 
 type CreateWorkspaceMessageParams struct {
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	AuthorType  string      `json:"author_type"`
-	AuthorID    pgtype.UUID `json:"author_id"`
-	Content     string      `json:"content"`
-	Metadata    []byte      `json:"metadata"`
+	ID          string         `json:"id"`
+	WorkspaceID string         `json:"workspace_id"`
+	AuthorType  string         `json:"author_type"`
+	AuthorID    sql.NullString `json:"author_id"`
+	Content     string         `json:"content"`
+	Metadata    []byte         `json:"metadata"`
 }
 
 func (q *Queries) CreateWorkspaceMessage(ctx context.Context, arg CreateWorkspaceMessageParams) (WorkspaceMessage, error) {
-	row := q.db.QueryRow(ctx, createWorkspaceMessage,
+	row := q.db.QueryRowContext(ctx, createWorkspaceMessage,
+		arg.ID,
 		arg.WorkspaceID,
 		arg.AuthorType,
 		arg.AuthorID,
@@ -47,11 +48,11 @@ func (q *Queries) CreateWorkspaceMessage(ctx context.Context, arg CreateWorkspac
 }
 
 const getWorkspaceMessage = `-- name: GetWorkspaceMessage :one
-SELECT id, workspace_id, author_type, author_id, content, metadata, created_at FROM workspace_messages WHERE id = $1
+SELECT id, workspace_id, author_type, author_id, content, metadata, created_at FROM workspace_messages WHERE id = ?
 `
 
-func (q *Queries) GetWorkspaceMessage(ctx context.Context, id pgtype.UUID) (WorkspaceMessage, error) {
-	row := q.db.QueryRow(ctx, getWorkspaceMessage, id)
+func (q *Queries) GetWorkspaceMessage(ctx context.Context, id string) (WorkspaceMessage, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceMessage, id)
 	var i WorkspaceMessage
 	err := row.Scan(
 		&i.ID,
@@ -68,20 +69,20 @@ func (q *Queries) GetWorkspaceMessage(ctx context.Context, id pgtype.UUID) (Work
 const listWorkspaceMessages = `-- name: ListWorkspaceMessages :many
 SELECT id, workspace_id, author_type, author_id, content, metadata, created_at FROM (
   SELECT id, workspace_id, author_type, author_id, content, metadata, created_at FROM workspace_messages
-  WHERE workspace_id = $1
+  WHERE workspace_id = ?
   ORDER BY created_at DESC
-  LIMIT $2 OFFSET $3
+  LIMIT ? OFFSET ?
 ) t ORDER BY created_at ASC
 `
 
 type ListWorkspaceMessagesParams struct {
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	Limit       int32       `json:"limit"`
-	Offset      int32       `json:"offset"`
+	WorkspaceID string `json:"workspace_id"`
+	Limit       int64  `json:"limit"`
+	Offset      int64  `json:"offset"`
 }
 
 func (q *Queries) ListWorkspaceMessages(ctx context.Context, arg ListWorkspaceMessagesParams) ([]WorkspaceMessage, error) {
-	rows, err := q.db.Query(ctx, listWorkspaceMessages, arg.WorkspaceID, arg.Limit, arg.Offset)
+	rows, err := q.db.QueryContext(ctx, listWorkspaceMessages, arg.WorkspaceID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +102,9 @@ func (q *Queries) ListWorkspaceMessages(ctx context.Context, arg ListWorkspaceMe
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

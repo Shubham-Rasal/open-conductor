@@ -98,12 +98,13 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
   }, [open, onClose]);
 
   const inputGlass =
-    "w-full rounded-[10px] border border-white/[0.08] bg-black/20 px-3 py-2.5 text-[13px] text-white/95 shadow-inner shadow-black/20 placeholder:text-white/35 backdrop-blur-sm transition focus:border-white/18 focus:outline-none focus:ring-1 focus:ring-white/12";
-  const labelClass = "mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.1em] text-white/45";
+    "w-full rounded-[10px] border border-input bg-background px-3 py-2.5 text-[13px] text-foreground shadow-inner shadow-black/5 placeholder:text-muted-foreground backdrop-blur-sm transition focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring dark:shadow-black/20";
+  const labelClass =
+    "mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground";
   const ghostBtn =
-    "rounded-[10px] border border-white/[0.1] bg-white/[0.04] px-4 py-2 text-[13px] font-medium text-white/90 shadow-sm backdrop-blur-sm transition hover:bg-white/[0.09]";
+    "rounded-[10px] border border-border bg-muted px-4 py-2 text-[13px] font-medium text-foreground shadow-sm backdrop-blur-sm transition hover:bg-accent";
   const primaryBtn =
-    "rounded-[10px] bg-white/[0.92] px-4 py-2 text-[13px] font-semibold text-neutral-900 shadow-md shadow-black/25 transition hover:bg-white disabled:opacity-45";
+    "rounded-[10px] bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground shadow-md transition hover:opacity-90 disabled:opacity-45";
 
   async function submitLocal(e: React.FormEvent) {
     e.preventDefault();
@@ -224,7 +225,7 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
           animate="animate"
           exit="exit"
           transition={ocTransition}
-          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/35 p-5 backdrop-blur-2xl backdrop-saturate-150"
+          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/25 p-5 backdrop-blur-2xl backdrop-saturate-150 dark:bg-black/35"
           role="dialog"
           aria-modal="true"
           aria-labelledby="create-ws-title"
@@ -236,31 +237,31 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
             animate="animate"
             exit="exit"
             transition={ocTransition}
-            className="pointer-events-auto flex max-h-[min(90vh,760px)] w-full min-w-0 max-w-[min(100%,480px)] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-gradient-to-b from-white/[0.14] to-white/[0.05] shadow-[0_32px_120px_-16px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.04)_inset] backdrop-blur-3xl backdrop-saturate-150 sm:max-w-[480px]"
+            className="pointer-events-auto flex max-h-[min(90vh,760px)] w-full min-w-0 max-w-[min(100%,480px)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_24px_80px_-20px_rgba(0,0,0,0.2)] backdrop-blur-3xl backdrop-saturate-150 dark:border-white/[0.12] dark:bg-gradient-to-b dark:from-white/[0.14] dark:to-white/[0.05] dark:shadow-[0_32px_120px_-16px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.04)_inset] sm:max-w-[480px]"
             onClick={(e) => e.stopPropagation()}
           >
         {/* Raycast-style top chrome */}
-        <div className="border-b border-white/[0.06] px-4 pb-3 pt-4">
+        <div className="border-b border-border px-4 pb-3 pt-4">
           <div className="flex items-start gap-3">
             <div
-              className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.08] shadow-inner shadow-black/20"
+              className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-muted shadow-inner shadow-black/5 dark:shadow-black/20"
               aria-hidden
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-white/85" stroke="currentColor" strokeWidth="1.75">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-foreground" stroke="currentColor" strokeWidth="1.75">
                 <path d="M12 5v14M5 12h14" strokeLinecap="round" />
               </svg>
             </div>
             <div className="min-w-0 flex-1">
-              <h2 id="create-ws-title" className="text-[15px] font-semibold tracking-tight text-white/95">
+              <h2 id="create-ws-title" className="text-[15px] font-semibold tracking-tight text-foreground">
                 New workspace
               </h2>
-              <p className="mt-0.5 text-[12px] leading-relaxed text-white/45">
+              <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
                 Choose how you want to connect a project to Open Conductor.
               </p>
             </div>
             <button
               type="button"
-              className="-mr-1 rounded-lg p-2 text-white/45 transition hover:bg-white/[0.08] hover:text-white/90"
+              className="-mr-1 rounded-lg p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
               aria-label="Close"
               onClick={onClose}
             >
@@ -284,24 +285,26 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
             >
         {flow === "menu" && (
           <div>
-            <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/38">Connect</p>
+            <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Connect
+            </p>
             <div className="flex flex-col gap-0.5">
             <button
               type="button"
               onClick={() => setFlow("local")}
-              className="group flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.08] focus:bg-white/[0.08] focus:outline-none"
+              className="group flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-muted focus:bg-muted focus:outline-none"
             >
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-white/[0.08] bg-black/25 text-sky-300/90 shadow-inner shadow-black/30">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-border bg-muted text-sky-600 shadow-inner shadow-black/5 dark:text-sky-300/90 dark:shadow-black/30">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                   <path d="M3 7h5l2-3h6a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
                 </svg>
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
-                  <span className="text-[13px] font-medium text-white/95">Add a local repo</span>
-                  <span className="shrink-0 text-[11px] text-white/35">Local</span>
+                  <span className="text-[13px] font-medium text-foreground">Add a local repo</span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">Local</span>
                 </span>
-                <span className="mt-0.5 block text-[12px] leading-snug text-white/42">
+                <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
                   Point at a folder on this machine that already contains your code.
                 </span>
               </span>
@@ -310,9 +313,9 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
             <button
               type="button"
               onClick={() => setFlow("clone")}
-              className="group flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.08] focus:bg-white/[0.08] focus:outline-none"
+              className="group flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-muted focus:bg-muted focus:outline-none"
             >
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-white/[0.08] bg-black/25 text-violet-300/90 shadow-inner shadow-black/30">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-border bg-muted text-violet-600 shadow-inner shadow-black/5 dark:text-violet-300/90 dark:shadow-black/30">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                   <circle cx="12" cy="12" r="9" />
                   <path d="M3 12h5a4 4 0 008 0h5" />
@@ -320,11 +323,12 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
-                  <span className="text-[13px] font-medium text-white/95">Clone from GitHub</span>
-                  <span className="shrink-0 text-[11px] text-white/35">Git</span>
+                  <span className="text-[13px] font-medium text-foreground">Clone from GitHub</span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">Git</span>
                 </span>
-                <span className="mt-0.5 block text-[12px] leading-snug text-white/42">
-                  Clone a repository into a folder (desktop runs <code className="rounded bg-black/30 px-1 font-mono text-[11px] text-white/55">git clone</code>).
+                <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+                  Clone a repository into a folder (desktop runs{" "}
+                  <code className="rounded bg-muted px-1 font-mono text-[11px] text-muted-foreground">git clone</code>).
                 </span>
               </span>
             </button>
@@ -335,9 +339,9 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
                 setFlow("remote");
                 setName("");
               }}
-              className="group flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.08] focus:bg-white/[0.08] focus:outline-none"
+              className="group flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-muted focus:bg-muted focus:outline-none"
             >
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-white/[0.08] bg-black/25 text-amber-200/85 shadow-inner shadow-black/30">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-border bg-muted text-amber-700 shadow-inner shadow-black/5 dark:text-amber-200/85 dark:shadow-black/30">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                   <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round" />
                   <circle cx="12" cy="12" r="3" />
@@ -345,11 +349,12 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
-                  <span className="text-[13px] font-medium text-white/95">Remote setup</span>
-                  <span className="shrink-0 text-[11px] text-white/35">Remote</span>
+                  <span className="text-[13px] font-medium text-foreground">Remote setup</span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">Remote</span>
                 </span>
-                <span className="mt-0.5 block text-[12px] leading-snug text-white/42">
-                  SSH (<code className="rounded bg-black/30 px-1 font-mono text-[11px] text-white/55">ssh://…</code>) or remote API URL.
+                <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+                  SSH (<code className="rounded bg-muted px-1 font-mono text-[11px] text-muted-foreground">ssh://…</code>) or
+                  remote API URL.
                 </span>
               </span>
             </button>
@@ -361,7 +366,7 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
           <form onSubmit={(e) => void submitLocal(e)} className="space-y-4">
             <button
               type="button"
-              className="text-[13px] text-white/45 transition hover:text-white/85"
+              className="text-[13px] text-muted-foreground transition hover:text-foreground"
               onClick={() => setFlow("menu")}
             >
               ← Back
@@ -396,7 +401,7 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
                   {pickBusy ? "…" : "Browse…"}
                 </button>
               </div>
-              <p className="mt-1.5 text-[11px] leading-relaxed text-white/38">
+              <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
                 Absolute path to the project root. Agents use this as their working directory.
               </p>
             </div>
@@ -410,7 +415,7 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
                 className={`${inputGlass} uppercase`}
               />
             </div>
-            {formError && <p className="text-[13px] text-rose-300/95">{formError}</p>}
+            {formError && <p className="text-[13px] text-destructive">{formError}</p>}
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={onClose} className={ghostBtn}>
                 Cancel
@@ -426,7 +431,7 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
           <div className="space-y-4">
             <button
               type="button"
-              className="text-[13px] text-white/45 transition hover:text-white/85"
+              className="text-[13px] text-muted-foreground transition hover:text-foreground"
               onClick={() => setFlow("menu")}
             >
               ← Back
@@ -464,9 +469,9 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
                     {pickBusy ? "…" : "Browse…"}
                   </button>
                 </div>
-                <p className="mt-1.5 text-[11px] text-white/38">
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
                   Repository will be cloned as{" "}
-                  <span className="font-mono text-white/65">
+                  <span className="font-mono text-foreground/80">
                     {cloneParent.replace(/\/$/, "")}/{cloneUrl ? deriveRepoFolderName(cloneUrl) : "repo"}
                   </span>
                 </p>
@@ -492,16 +497,20 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
               </div>
 
               {cloneUrl && cloneParent && (
-                <div className="rounded-[10px] border border-white/[0.08] bg-black/25 p-3 shadow-inner shadow-black/30 backdrop-blur-sm">
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">Terminal equivalent</p>
-                  <code className="block break-all font-mono text-[11px] leading-relaxed text-white/75">
+                <div className="rounded-[10px] border border-border bg-muted p-3 shadow-inner shadow-black/5 backdrop-blur-sm dark:shadow-black/30">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Terminal equivalent
+                  </p>
+                  <code className="block break-all font-mono text-[11px] leading-relaxed text-foreground/90">
                     {buildGitCloneCommand(cloneUrl, cloneParent)}
                   </code>
                 </div>
               )}
 
-              {cloneError && <p className="text-[13px] text-amber-200/90">{cloneError}</p>}
-              {formError && <p className="text-[13px] text-rose-300/95">{formError}</p>}
+              {cloneError && (
+                <p className="text-[13px] text-amber-700 dark:text-amber-200/90">{cloneError}</p>
+              )}
+              {formError && <p className="text-[13px] text-destructive">{formError}</p>}
 
               <div className="flex flex-wrap justify-end gap-2 pt-1">
                 <button type="button" onClick={onClose} className={ghostBtn}>
@@ -536,7 +545,7 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
           <form onSubmit={(e) => void submitRemote(e)} className="space-y-4">
             <button
               type="button"
-              className="text-[13px] text-white/45 transition hover:text-white/85"
+              className="text-[13px] text-muted-foreground transition hover:text-foreground"
               onClick={() => setFlow("menu")}
             >
               ← Back
@@ -560,7 +569,7 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
                 placeholder="ssh://user@host:22 or https://remote-host:8080"
                 className={`${inputGlass} font-mono text-[12px]`}
               />
-              <p className="mt-1.5 text-[11px] leading-relaxed text-white/38">
+              <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
                 SSH for agent execution on a remote host, or HTTPS if the remote exposes the same API (e.g. detect-agents).
               </p>
             </div>
@@ -574,7 +583,7 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
                 className={`${inputGlass} uppercase`}
               />
             </div>
-            {formError && <p className="text-[13px] text-rose-300/95">{formError}</p>}
+            {formError && <p className="text-[13px] text-destructive">{formError}</p>}
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={onClose} className={ghostBtn}>
                 Cancel
@@ -589,14 +598,18 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
           </AnimatePresence>
         </div>
 
-        <div className="flex items-center justify-between border-t border-white/[0.08] bg-black/15 px-4 py-3 backdrop-blur-md">
-          <span className="text-[11px] font-medium text-white/30">Open Conductor</span>
-          <div className="flex items-center gap-3 text-[11px] text-white/38">
+        <div className="flex items-center justify-between border-t border-border bg-muted/40 px-4 py-3 backdrop-blur-md dark:bg-black/15">
+          <span className="text-[11px] font-medium text-muted-foreground">Open Conductor</span>
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="hidden sm:inline">Submit</span>
-            <kbd className="rounded-md border border-white/[0.1] bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-white/55">Enter</kbd>
-            <span className="text-white/20">·</span>
+            <kbd className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              Enter
+            </kbd>
+            <span className="text-muted-foreground/40">·</span>
             <span className="hidden sm:inline">Close</span>
-            <kbd className="rounded-md border border-white/[0.1] bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-white/55">Esc</kbd>
+            <kbd className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              Esc
+            </kbd>
           </div>
         </div>
           </motion.div>

@@ -5,15 +5,18 @@ import remarkGfm from "remark-gfm";
 import {
   workspaceMessagesOptions,
   usePostWorkspaceMessage,
+  useCancelWorkspaceChatStream,
+  useEnqueueOrchestratorBulk,
   useWorkspaceConversations,
   useConvStore,
+  getActiveStreamIdForConversation,
   type ConvMessage,
   type Conversation,
 } from "@open-conductor/core/chat";
 import { useCreateIssue } from "@open-conductor/core/issues";
 import { useCoreContext } from "@open-conductor/core/platform";
 import { agentListOptions } from "@open-conductor/core/agents";
-import type { Agent, ProposedPlanIssue } from "@open-conductor/core/types";
+import type { Agent, ProposedPlanIssue, ProposedTask, TaskStatus, TaskStageEvent } from "@open-conductor/core/types";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -633,6 +636,256 @@ function ProposedIssuesCard({
   );
 }
 
+function orchestratorWaves(tasks: ProposedTask[]): ProposedTask[][] {
+  const byId = new Map(tasks.map((t) => [t.local_id, t]));
+  const memo = new Map<string, number>();
+  const visiting = new Set<string>();
+
+  function depthOf(id: string): number {
+    if (memo.has(id)) return memo.get(id)!;
+    if (visiting.has(id)) {
+      memo.set(id, 0);
+      return 0;
+    }
+    visiting.add(id);
+    const t = byId.get(id);
+    let d = 0;
+    if (t?.depends_on?.length) {
+      for (const dep of t.depends_on) {
+        if (byId.has(dep)) d = Math.max(d, depthOf(dep) + 1);
+      }
+    }
+    visiting.delete(id);
+    memo.set(id, d);
+    return d;
+  }
+
+  for (const t of tasks) depthOf(t.local_id);
+  const depths = tasks.map((t) => depthOf(t.local_id));
+  const maxD = depths.length === 0 ? 0 : Math.max(0, ...depths);
+  const waves: ProposedTask[][] = Array.from({ length: maxD + 1 }, () => []);
+  for (const t of tasks) {
+    const idx = depthOf(t.local_id);
+    const wave = waves[idx];
+    if (wave) wave.push(t);
+  }
+  return waves;
+}
+
+function orchestratorStatusLabel(
+  issueId: string | undefined,
+  stage: TaskStatus | undefined,
+  enqueued: boolean
+): string {
+  if (!enqueued) return "Pending";
+  if (!issueId) return "…";
+  if (stage === undefined) return "Queued";
+  if (stage === "dispatched" || stage === "running") return "Running";
+  if (stage === "completed") return "Done";
+  if (stage === "failed") return "Failed";
+  if (stage === "cancelled") return "Cancelled";
+  if (stage === "queued") return "Queued";
+  return stage;
+}
+
+function OrchestratorTodosCard({
+  messageId,
+  convId,
+  items,
+  agents,
+  workspaceId,
+  enqueuedByLocalId,
+}: {
+  messageId: string;
+  convId: string;
+  items: ProposedTask[];
+  agents: Agent[];
+  workspaceId: string;
+  /** Persisted local_id → issue id (survives reload). */
+  enqueuedByLocalId?: Record<string, string>;
+}) {
+  const { wsClient } = useCoreContext();
+  const enqueue = useEnqueueOrchestratorBulk();
+  const issueByLocal = enqueuedByLocalId ?? {};
+  const [loadingLocal, setLoadingLocal] = useState<Record<string, true>>({});
+  const [stageByIssue, setStageByIssue] = useState<Record<string, TaskStatus>>({});
+
+  const waves = useMemo(() => orchestratorWaves(items), [items]);
+  const agentById = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
+
+  const uniqueAgents = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of items) {
+      if (t.agent_id) s.add(t.agent_id);
+    }
+    return s.size;
+  }, [items]);
+
+  useEffect(() => {
+    const off = wsClient.on("task:stage", (e) => {
+      const p = e.payload as TaskStageEvent;
+      const wid = p.workspace_id ?? workspaceId;
+      if (wid !== workspaceId || !p.issue_id) return;
+      setStageByIssue((prev) => ({ ...prev, [p.issue_id]: p.stage }));
+    });
+    return () => off();
+  }, [wsClient, workspaceId]);
+
+  async function runEnqueue(subset: ProposedTask[]) {
+    const keys = subset.map((t) => t.local_id);
+    setLoadingLocal((s) => {
+      const n = { ...s };
+      for (const k of keys) n[k] = true;
+      return n;
+    });
+    try {
+      const res = await enqueue.mutateAsync({ tasks: subset });
+      const patch: Record<string, string> = {};
+      for (const r of res.results ?? []) {
+        patch[r.local_id] = r.issue_id;
+      }
+      if (Object.keys(patch).length > 0) {
+        useConvStore.getState().patchOrchestratorEnqueue(workspaceId, convId, messageId, patch);
+      }
+      setStageByIssue((prev) => {
+        const n = { ...prev };
+        for (const r of res.results ?? []) {
+          n[r.issue_id] = "queued";
+        }
+        return n;
+      });
+    } finally {
+      setLoadingLocal((s) => {
+        const n = { ...s };
+        for (const k of keys) delete n[k];
+        return n;
+      });
+    }
+  }
+
+  const enqueuedCount = Object.keys(issueByLocal).length;
+  const allEnqueued = enqueuedCount === items.length;
+
+  return (
+    <div className="my-1 w-full max-w-xl rounded-xl border border-border/60 bg-card/60 shadow-sm">
+      <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <SparkleIcon className="h-3.5 w-3.5 text-brand" />
+          <span className="text-xs font-semibold text-foreground">Orchestrated tasks</span>
+        </div>
+        <div className="flex flex-col items-end gap-0.5">
+          <span className="text-[11px] text-muted-foreground/60">
+            {items.length} task{items.length !== 1 ? "s" : ""} · {uniqueAgents} agent{uniqueAgents !== 1 ? "s" : ""}
+          </span>
+          {!allEnqueued && (
+            <button
+              type="button"
+              onClick={() => void runEnqueue(items.filter((t) => !issueByLocal[t.local_id]))}
+              className="rounded-md border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              Enqueue all
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="divide-y divide-border/30">
+        {waves.map((wave, wi) => (
+          <div key={`wave_${wi}`} className="px-4 py-2">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+              Wave {wi + 1}
+            </p>
+            <ul className="space-y-2">
+              {wave.map((it) => {
+                const issueId = issueByLocal[it.local_id];
+                const enqueued = Boolean(issueId);
+                const stage = issueId ? stageByIssue[issueId] : undefined;
+                const ag = it.agent_id ? agentById.get(it.agent_id) : undefined;
+                const dot =
+                  ag?.status === "idle"
+                    ? "bg-success"
+                    : ag?.status === "working"
+                      ? "bg-brand animate-pulse"
+                      : ag?.status === "error"
+                        ? "bg-destructive"
+                        : "bg-muted-foreground/40";
+                const loading = loadingLocal[it.local_id];
+                const statusText = orchestratorStatusLabel(issueId, stage, enqueued);
+
+                return (
+                  <li
+                    key={it.local_id}
+                    className={`flex items-start gap-3 rounded-lg border border-border/30 bg-muted/10 px-3 py-2.5 ${enqueued ? "opacity-90" : ""}`}
+                  >
+                    <span className="mt-1 font-mono text-[10px] text-muted-foreground/60">{it.local_id}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-foreground">{it.title}</p>
+                      {it.description && (
+                        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground/70">{it.description}</p>
+                      )}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {it.priority}
+                        </span>
+                        {it.agent_id && (
+                          <span className="flex items-center gap-1 rounded-full border border-border/50 bg-background/80 px-2 py-0.5 text-[10px]">
+                            <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+                            <span className="truncate max-w-[120px]">{ag?.name ?? it.agent_id}</span>
+                          </span>
+                        )}
+                        {it.depends_on && it.depends_on.length > 0 && (
+                          <span className="text-[10px] text-muted-foreground/60">
+                            after: {it.depends_on.join(", ")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-shrink-0 flex-col items-end gap-1">
+                      <span
+                        className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+                          statusText === "Done"
+                            ? "bg-success/15 text-success"
+                            : statusText === "Failed"
+                              ? "bg-destructive/15 text-destructive"
+                              : statusText === "Running"
+                                ? "bg-brand/15 text-brand"
+                                : "bg-muted/50 text-muted-foreground"
+                        }`}
+                      >
+                        {statusText}
+                      </span>
+                      {!enqueued ? (
+                        loading ? (
+                          <svg className="h-4 w-4 animate-spin text-muted-foreground" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                            />
+                          </svg>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void runEnqueue([it])}
+                            className="rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+                          >
+                            Enqueue
+                          </button>
+                        )
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Composer image type ───────────────────────────────────────────────────────
 
 interface AttachedImage {
@@ -655,6 +908,7 @@ export function WorkspaceChatView() {
 
   const { data: agents = [] } = useQuery(agentListOptions(apiClient, workspaceId));
   const postMsg = usePostWorkspaceMessage();
+  const cancelChat = useCancelWorkspaceChatStream();
   const createIssue = useCreateIssue();
 
   const conv = useWorkspaceConversations(workspaceId);
@@ -665,6 +919,8 @@ export function WorkspaceChatView() {
   const [pendingConvIds, setPendingConvIds] = useState<Set<string>>(new Set());
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  /** Once the user picks an agent (including "No agent"), never overwrite from the Plan-mode default effect. */
+  const userChoseChatAgentRef = useRef(false);
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [mode, setMode] = useState<"plan" | "execute">("plan");
@@ -715,9 +971,9 @@ export function WorkspaceChatView() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showAgentPicker]);
 
-  // Auto-select Claude when switching to Plan mode
+  // Default to a Claude agent in Plan mode until the user explicitly changes the picker (avoids clobbering choice on agents refetch).
   useEffect(() => {
-    if (mode !== "plan") return;
+    if (mode !== "plan" || userChoseChatAgentRef.current) return;
     const agentList = agents as Agent[];
     if (agentList.length === 0) return;
     const claude = agentList.find(
@@ -729,8 +985,14 @@ export function WorkspaceChatView() {
   }, [mode, agents]);
 
   const selectedAgent = (agents as Agent[]).find((a) => a.id === selectedAgentId) ?? null;
-  const isPending = pendingConvIds.has(conv.activeId);
-  const canSend = (input.trim().length > 0 || attachedImages.length > 0) && !isPending;
+  const waitingPost = pendingConvIds.has(conv.activeId);
+  const streamingHere = streamingConvIds.has(conv.activeId);
+  const isAiResponding = waitingPost || streamingHere;
+  const activeStreamId = getActiveStreamIdForConversation(conv.activeId);
+  const canSend =
+    (input.trim().length > 0 || attachedImages.length > 0) && !isAiResponding;
+  const planAssistantBusy = mode === "plan" && isAiResponding;
+  const showComposerSpinner = isAiResponding && mode === "execute";
 
   // Image helpers
   const addImageFromFile = useCallback((file: File) => {
@@ -794,12 +1056,23 @@ export function WorkspaceChatView() {
         content: t,
         respond_with_assistant: true,
         history: history.length > 0 ? history : undefined,
+        mode,
+        ...(selectedAgentId ? { agent_id: selectedAgentId } : {}),
       });
       if (result.stream_id) {
         useConvStore.getState().registerChatStream(workspaceId, result.stream_id, convId);
       }
     } finally {
       setPendingConvIds((prev) => { const n = new Set(prev); n.delete(convId); return n; });
+    }
+  }
+
+  async function handleStopPlanChat() {
+    if (!activeStreamId) return;
+    try {
+      await cancelChat.mutateAsync({ stream_id: activeStreamId });
+    } catch {
+      /* network error — stream may still end via WS */
     }
   }
 
@@ -832,6 +1105,35 @@ export function WorkspaceChatView() {
         streamingConvIds={streamingConvIds}
         unreadConvIds={unreadConvIds}
       />
+
+      {planAssistantBusy && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-border/50 bg-canvas/90 px-4 py-2">
+          <div
+            className="relative h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+            role="progressbar"
+            aria-busy="true"
+            aria-valuetext={waitingPost && !streamingHere ? "Starting assistant" : "Assistant is planning"}
+          >
+            <div className="oc-chat-progress-bar absolute inset-y-0 w-[42%] rounded-full bg-primary shadow-sm shadow-primary/20" />
+          </div>
+          <span className="hidden text-[11px] text-muted-foreground sm:inline">
+            {waitingPost && !streamingHere ? "Starting…" : "Planning…"}
+          </span>
+          <button
+            type="button"
+            onClick={() => void handleStopPlanChat()}
+            disabled={!activeStreamId || cancelChat.isPending}
+            title={
+              !activeStreamId
+                ? "Connecting to assistant…"
+                : "Stop generating"
+            }
+            className="shrink-0 rounded-md border border-border/80 bg-background px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Stop
+          </button>
+        </div>
+      )}
 
       {/* ── Messages ────────────────────────────────────────────────────────── */}
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
@@ -874,6 +1176,21 @@ export function WorkspaceChatView() {
               return (
                 <div key={m.id} className="flex justify-start">
                   <ProposedIssuesCard items={m.planItems} onAdd={handleAddIssue} />
+                </div>
+              );
+            }
+
+            if (m.role === "orchestrator_proposal" && m.proposedTasks?.length) {
+              return (
+                <div key={m.id} className="flex justify-start">
+                  <OrchestratorTodosCard
+                    messageId={m.id}
+                    convId={conv.activeId}
+                    items={m.proposedTasks}
+                    agents={agents as Agent[]}
+                    workspaceId={workspaceId}
+                    enqueuedByLocalId={m.orchestratorEnqueuedByLocalId}
+                  />
                 </div>
               );
             }
@@ -996,7 +1313,11 @@ export function WorkspaceChatView() {
                       <div className="max-h-64 overflow-y-auto p-1.5">
                         <button
                           type="button"
-                          onClick={() => { setSelectedAgentId(null); setShowAgentPicker(false); }}
+                          onClick={() => {
+                            userChoseChatAgentRef.current = true;
+                            setSelectedAgentId(null);
+                            setShowAgentPicker(false);
+                          }}
                           className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-accent ${!selectedAgentId ? "bg-accent/70" : ""}`}
                         >
                           <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-muted-foreground/50" />
@@ -1016,7 +1337,11 @@ export function WorkspaceChatView() {
                             <button
                               key={agent.id}
                               type="button"
-                              onClick={() => { setSelectedAgentId(agent.id); setShowAgentPicker(false); }}
+                              onClick={() => {
+                                userChoseChatAgentRef.current = true;
+                                setSelectedAgentId(agent.id);
+                                setShowAgentPicker(false);
+                              }}
                               className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-accent ${selectedAgentId === agent.id ? "bg-accent/70" : ""}`}
                             >
                               <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dot}`} />
@@ -1035,7 +1360,7 @@ export function WorkspaceChatView() {
 
               {/* Right */}
               <div className="flex items-center gap-1">
-                {isPending && (
+                {showComposerSpinner && (
                   <svg className="h-4 w-4 animate-spin text-muted-foreground" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />

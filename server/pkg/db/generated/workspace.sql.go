@@ -7,28 +7,30 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
+	"time"
 )
 
 const createWorkspace = `-- name: CreateWorkspace :one
-INSERT INTO workspaces (name, slug, prefix, description, type, connection_url, working_directory)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO workspaces (id, name, slug, prefix, description, type, connection_url, working_directory)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, name, slug, created_at, updated_at, prefix, description, type, connection_url, working_directory
 `
 
 type CreateWorkspaceParams struct {
-	Name             string  `json:"name"`
-	Slug             string  `json:"slug"`
-	Prefix           string  `json:"prefix"`
-	Description      *string `json:"description"`
-	Type             string  `json:"type"`
-	ConnectionUrl    *string `json:"connection_url"`
-	WorkingDirectory *string `json:"working_directory"`
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	Slug             string         `json:"slug"`
+	Prefix           string         `json:"prefix"`
+	Description      sql.NullString `json:"description"`
+	Type             string         `json:"type"`
+	ConnectionUrl    sql.NullString `json:"connection_url"`
+	WorkingDirectory sql.NullString `json:"working_directory"`
 }
 
 func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams) (Workspace, error) {
-	row := q.db.QueryRow(ctx, createWorkspace,
+	row := q.db.QueryRowContext(ctx, createWorkspace,
+		arg.ID,
 		arg.Name,
 		arg.Slug,
 		arg.Prefix,
@@ -54,20 +56,20 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 }
 
 const deleteWorkspace = `-- name: DeleteWorkspace :exec
-DELETE FROM workspaces WHERE id = $1
+DELETE FROM workspaces WHERE id = ?
 `
 
-func (q *Queries) DeleteWorkspace(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteWorkspace, id)
+func (q *Queries) DeleteWorkspace(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkspace, id)
 	return err
 }
 
 const getWorkspace = `-- name: GetWorkspace :one
-SELECT id, name, slug, created_at, updated_at, prefix, description, type, connection_url, working_directory FROM workspaces WHERE id = $1
+SELECT id, name, slug, created_at, updated_at, prefix, description, type, connection_url, working_directory FROM workspaces WHERE id = ?
 `
 
-func (q *Queries) GetWorkspace(ctx context.Context, id pgtype.UUID) (Workspace, error) {
-	row := q.db.QueryRow(ctx, getWorkspace, id)
+func (q *Queries) GetWorkspace(ctx context.Context, id string) (Workspace, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspace, id)
 	var i Workspace
 	err := row.Scan(
 		&i.ID,
@@ -85,11 +87,11 @@ func (q *Queries) GetWorkspace(ctx context.Context, id pgtype.UUID) (Workspace, 
 }
 
 const getWorkspaceBySlug = `-- name: GetWorkspaceBySlug :one
-SELECT id, name, slug, created_at, updated_at, prefix, description, type, connection_url, working_directory FROM workspaces WHERE slug = $1
+SELECT id, name, slug, created_at, updated_at, prefix, description, type, connection_url, working_directory FROM workspaces WHERE slug = ?
 `
 
 func (q *Queries) GetWorkspaceBySlug(ctx context.Context, slug string) (Workspace, error) {
-	row := q.db.QueryRow(ctx, getWorkspaceBySlug, slug)
+	row := q.db.QueryRowContext(ctx, getWorkspaceBySlug, slug)
 	var i Workspace
 	err := row.Scan(
 		&i.ID,
@@ -117,22 +119,22 @@ SELECT
     u.avatar_url
 FROM workspace_members wm
 JOIN users u ON u.id = wm.user_id
-WHERE wm.workspace_id = $1
+WHERE wm.workspace_id = ?
 ORDER BY u.name ASC
 `
 
 type ListWorkspaceMembersWithUsersRow struct {
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	Role        string             `json:"role"`
-	JoinedAt    pgtype.Timestamptz `json:"joined_at"`
-	Email       string             `json:"email"`
-	Name        string             `json:"name"`
-	AvatarUrl   *string            `json:"avatar_url"`
+	WorkspaceID string         `json:"workspace_id"`
+	UserID      string         `json:"user_id"`
+	Role        string         `json:"role"`
+	JoinedAt    time.Time      `json:"joined_at"`
+	Email       string         `json:"email"`
+	Name        string         `json:"name"`
+	AvatarUrl   sql.NullString `json:"avatar_url"`
 }
 
-func (q *Queries) ListWorkspaceMembersWithUsers(ctx context.Context, workspaceID pgtype.UUID) ([]ListWorkspaceMembersWithUsersRow, error) {
-	rows, err := q.db.Query(ctx, listWorkspaceMembersWithUsers, workspaceID)
+func (q *Queries) ListWorkspaceMembersWithUsers(ctx context.Context, workspaceID string) ([]ListWorkspaceMembersWithUsersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkspaceMembersWithUsers, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -153,6 +155,9 @@ func (q *Queries) ListWorkspaceMembersWithUsers(ctx context.Context, workspaceID
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -164,7 +169,7 @@ SELECT id, name, slug, created_at, updated_at, prefix, description, type, connec
 `
 
 func (q *Queries) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
-	rows, err := q.db.Query(ctx, listWorkspaces)
+	rows, err := q.db.QueryContext(ctx, listWorkspaces)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +193,9 @@ func (q *Queries) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -196,29 +204,29 @@ func (q *Queries) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 
 const updateWorkspace = `-- name: UpdateWorkspace :one
 UPDATE workspaces SET
-    name = COALESCE($1, name),
-    description = COALESCE($2, description),
-    prefix = COALESCE($3, prefix),
-    type = COALESCE($4, type),
-    connection_url = COALESCE($5, connection_url),
-    working_directory = COALESCE($6, working_directory),
-    updated_at = NOW()
-WHERE id = $7
+    name = COALESCE(?1, name),
+    description = COALESCE(?2, description),
+    prefix = COALESCE(?3, prefix),
+    type = COALESCE(?4, type),
+    connection_url = COALESCE(?5, connection_url),
+    working_directory = COALESCE(?6, working_directory),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?7
 RETURNING id, name, slug, created_at, updated_at, prefix, description, type, connection_url, working_directory
 `
 
 type UpdateWorkspaceParams struct {
-	Name             *string     `json:"name"`
-	Description      *string     `json:"description"`
-	Prefix           *string     `json:"prefix"`
-	Type             *string     `json:"type"`
-	ConnectionUrl    *string     `json:"connection_url"`
-	WorkingDirectory *string     `json:"working_directory"`
-	ID               pgtype.UUID `json:"id"`
+	Name             sql.NullString `json:"name"`
+	Description      sql.NullString `json:"description"`
+	Prefix           sql.NullString `json:"prefix"`
+	Type             sql.NullString `json:"type"`
+	ConnectionUrl    sql.NullString `json:"connection_url"`
+	WorkingDirectory sql.NullString `json:"working_directory"`
+	ID               string         `json:"id"`
 }
 
 func (q *Queries) UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams) (Workspace, error) {
-	row := q.db.QueryRow(ctx, updateWorkspace,
+	row := q.db.QueryRowContext(ctx, updateWorkspace,
 		arg.Name,
 		arg.Description,
 		arg.Prefix,

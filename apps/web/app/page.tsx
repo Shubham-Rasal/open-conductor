@@ -1,41 +1,12 @@
+import Link from "next/link";
+
 import styles from "./page.module.css";
 
-interface ReleaseAsset {
-  name: string;
-  browser_download_url: string;
-  size: number;
-  content_type: string;
-}
-
-interface Release {
-  tag_name: string;
-  name: string;
-  published_at: string;
-  html_url: string;
-  body: string;
-  assets: ReleaseAsset[];
-}
-
-async function getLatestRelease(): Promise<Release | null> {
-  const repo = process.env.GITHUB_REPO ?? "open-conductor/open-conductor";
-  const token = process.env.GITHUB_TOKEN;
-  try {
-    const headers: Record<string, string> = {
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    const res = await fetch(
-      `https://api.github.com/repos/${repo}/releases/latest`,
-      { headers, next: { revalidate: 300 } }
-    );
-    if (!res.ok) return null;
-    return (await res.json()) as Release;
-  } catch {
-    return null;
-  }
-}
+import {
+  fetchLatestRelease,
+  findAsset,
+  pickMacInstaller,
+} from "../lib/github-release";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -78,15 +49,6 @@ const PLATFORMS: Platform[] = [
   },
 ];
 
-function findAsset(
-  assets: ReleaseAsset[],
-  matchers: string[]
-): ReleaseAsset | undefined {
-  return assets.find((a) =>
-    matchers.some((m) => a.name.toLowerCase().includes(m.toLowerCase()))
-  );
-}
-
 const MacIcon = () => (
   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path
@@ -124,7 +86,7 @@ const GITHUB_REPO = process.env.GITHUB_REPO ?? "open-conductor/open-conductor";
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
 
 export default async function Home() {
-  const release = await getLatestRelease();
+  const release = await fetchLatestRelease(false);
   const version = release?.tag_name ?? "v0.1.0";
   const publishedAt = release?.published_at
     ? formatDate(release.published_at)
@@ -134,16 +96,24 @@ export default async function Home() {
     <div className={styles.page}>
       {/* ── Nav ──────────────────────────────────────────── */}
       <header className={styles.nav}>
-        <a href="/" className={styles.navLogo}>
+        <Link href="/" className={styles.navLogo}>
           <span className={styles.navLogoMark}>◆</span>
           Open Conductor
-        </a>
+        </Link>
         <nav className={styles.navLinks}>
           <a href={`${GITHUB_URL}/releases`} className={styles.navLink}>
             Releases
           </a>
           <a href={`${GITHUB_URL}/blob/main/README.md`} className={styles.navLink}>
             Docs
+          </a>
+          <a
+            href="/download/mac"
+            className={styles.navDownload}
+            aria-label="Download Open Conductor for macOS"
+          >
+            <MacIcon />
+            Download for Mac
           </a>
           <a
             href={GITHUB_URL}
@@ -183,16 +153,14 @@ export default async function Home() {
           {release && release.assets.length > 0 ? (
             <>
               {(() => {
-                const macAsset = findAsset(
-                  release.assets,
-                  PLATFORMS[0]!.matchers
-                );
+                const macAsset = pickMacInstaller(release.assets);
                 return macAsset ? (
                   <a
-                    href={macAsset.browser_download_url}
+                    href="/download/mac"
                     className={styles.btnPrimary}
+                    aria-label={`Download Open Conductor ${version} for macOS (${formatBytes(macAsset.size)})`}
                   >
-                    Download for macOS
+                    Download for Mac
                     <span className={styles.btnMeta}>
                       {formatBytes(macAsset.size)}
                     </span>
@@ -286,7 +254,9 @@ export default async function Home() {
         <div className={styles.platforms}>
           {PLATFORMS.map((platform) => {
             const asset = release
-              ? findAsset(release.assets, platform.matchers)
+              ? platform.label === "macOS"
+                ? pickMacInstaller(release.assets)
+                : findAsset(release.assets, platform.matchers)
               : undefined;
 
             return (
@@ -301,8 +271,17 @@ export default async function Home() {
                 </div>
                 {asset ? (
                   <a
-                    href={asset.browser_download_url}
+                    href={
+                      platform.label === "macOS"
+                        ? "/download/mac"
+                        : asset.browser_download_url
+                    }
                     className={styles.platformDownload}
+                    aria-label={
+                      platform.label === "macOS"
+                        ? `Download for macOS (${formatBytes(asset.size)})`
+                        : `Download for ${platform.label} (${formatBytes(asset.size)})`
+                    }
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                       <path d="M12 3v13m0 0l-4-4m4 4l4-4M3 20h18" />

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { Outlet, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { workspaceListOptions, useWorkspaceStore } from "@open-conductor/core/workspaces";
@@ -11,7 +11,9 @@ export function WorkspaceLayout() {
   const { data: workspaces = [] } = useQuery(workspaceListOptions(apiClient));
   const switchWorkspace = useWorkspaceStore((s) => s.switchWorkspace);
 
-  useEffect(() => {
+  // Before paint: keep global workspace store aligned with the URL so CoreProvider and queries
+  // never flash the previous workspace’s data after navigation.
+  useLayoutEffect(() => {
     if (!paramId || !workspaces.length) return;
     const w = workspaces.find((x) => x.id === paramId);
     if (w) switchWorkspace(w);
@@ -19,7 +21,8 @@ export function WorkspaceLayout() {
 
   return (
     <div className="h-full min-h-0 w-full">
-      <Outlet />
+      {/* Remount workspace views when switching workspaces — drops stale UI/state from the prior ws */}
+      <Outlet key={paramId ?? ""} />
     </div>
   );
 }

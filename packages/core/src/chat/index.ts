@@ -6,5 +6,6 @@ export {
   useWorkspaceConversations,
   scanLocalStorageForOrphanStreams,
   cleanupOrphanMessages,
+  getActiveStreamIdForConversation,
   type ChatStreamPayload,
 } from "./convStore";

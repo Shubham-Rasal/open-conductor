@@ -14,4 +14,13 @@ contextBridge.exposeInMainWorld("electron", {
     ipcRenderer.invoke("open-conductor:pick-directory") as Promise<
       { ok: true; path: string } | { ok: false }
     >,
+  setup: {
+    getContext: () => ipcRenderer.invoke("open-conductor:setup-context"),
+  },
+  localRuntime: {
+    start: (opts: { postgres?: boolean; server?: boolean }) =>
+      ipcRenderer.invoke("open-conductor:bundled-start", opts),
+    stop: () => ipcRenderer.invoke("open-conductor:bundled-stop"),
+    getState: () => ipcRenderer.invoke("open-conductor:bundled-state"),
+  },
 });

@@ -205,7 +205,10 @@ func getAgent(s *Store) http.HandlerFunc {
 }
 
 type patchAgentRequest struct {
-	Instructions *string `json:"instructions"`
+	Instructions       *string `json:"instructions"`
+	Name               *string `json:"name"`
+	Model              *string `json:"model"`
+	MaxConcurrentTasks *int32  `json:"max_concurrent_tasks"`
 }
 
 func sameWorkspace(agentWs, ws pgtype.UUID) bool {
@@ -393,15 +396,18 @@ func patchAgent(s *Store) http.HandlerFunc {
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
-		if req.Instructions == nil {
-			http.Error(w, "instructions is required", http.StatusBadRequest)
+		if req.Instructions == nil && req.Name == nil && req.Model == nil && req.MaxConcurrentTasks == nil {
+			http.Error(w, "at least one field is required", http.StatusBadRequest)
 			return
 		}
 
-		agent, err := s.Q.UpdateAgentInstructions(r.Context(), db.UpdateAgentInstructionsParams{
-			ID:           id,
-			WorkspaceID:  wsID,
-			Instructions: *req.Instructions,
+		agent, err := s.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{
+			ID:                 id,
+			WorkspaceID:        wsID,
+			Name:               req.Name,
+			Instructions:       req.Instructions,
+			MaxConcurrentTasks: req.MaxConcurrentTasks,
+			Model:              req.Model,
 		})
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)

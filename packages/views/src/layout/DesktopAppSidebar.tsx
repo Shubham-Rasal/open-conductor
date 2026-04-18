@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -9,8 +9,10 @@ import {
   useDeleteWorkspace,
 } from "@open-conductor/core/workspaces";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
+import { WorkspaceIdenticon } from "./WorkspaceIdenticon";
 import type { Workspace } from "@open-conductor/core/types";
 import { ocTransitionFast } from "../motion/presets";
+import { getColorScheme, setColorScheme, type ColorScheme } from "../theme";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -64,12 +66,6 @@ const NAV_ITEMS = [
   },
 ] as const;
 
-function WorkspaceGlyph() {
-  return (
-    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-[5px] border border-white/[0.10] bg-gradient-to-br from-white/[0.13] to-white/[0.04]" aria-hidden />
-  );
-}
-
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 export function DesktopAppSidebar() {
@@ -82,17 +78,42 @@ export function DesktopAppSidebar() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [expandedWsId, setExpandedWsId] = useState<string | null>(null);
+  /** Which workspace rows show Chat / Issues / Agents — independent per workspace; only chevron toggles remove. */
+  const [expandedWsIds, setExpandedWsIds] = useState<Set<string>>(() => new Set());
+  const [colorScheme, setColorSchemeState] = useState<ColorScheme>(() => getColorScheme());
 
   const activeId = ctx.workspaceId;
+  const expandedSeedDone = useRef(false);
 
+  /** First time we know the active workspace, open its nav so the app doesn’t look empty. */
   useEffect(() => {
-    setExpandedWsId(activeId ?? null);
+    if (expandedSeedDone.current || !activeId) return;
+    expandedSeedDone.current = true;
+    setExpandedWsIds((prev) => (prev.size === 0 ? new Set([activeId]) : prev));
   }, [activeId]);
+
+  function handleThemeToggle() {
+    const next: ColorScheme = colorScheme === "dark" ? "light" : "dark";
+    setColorScheme(next);
+    setColorSchemeState(next);
+  }
+
+  function toggleWorkspaceNav(wsId: string) {
+    setExpandedWsIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(wsId)) next.delete(wsId);
+      else next.add(wsId);
+      return next;
+    });
+  }
 
   function nav(ws: Workspace, path: string) {
     switchWorkspace(ws);
-    setExpandedWsId(ws.id);
+    setExpandedWsIds((prev) => {
+      const next = new Set(prev);
+      next.add(ws.id);
+      return next;
+    });
     navigate(path);
   }
 
@@ -103,6 +124,11 @@ export function DesktopAppSidebar() {
     setDeleteError(null);
     try {
       await deleteWs.mutateAsync(ws.id);
+      setExpandedWsIds((prev) => {
+        const next = new Set(prev);
+        next.delete(ws.id);
+        return next;
+      });
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete workspace");
     }
@@ -110,7 +136,7 @@ export function DesktopAppSidebar() {
 
   return (
     <nav
-      className="flex h-full w-[220px] flex-shrink-0 flex-col border-r border-white/[0.07] bg-sidebar/80 backdrop-blur-3xl backdrop-saturate-150"
+      className="flex h-full w-[220px] flex-shrink-0 flex-col border-r border-black/[0.06] bg-sidebar/80 backdrop-blur-3xl backdrop-saturate-150 dark:border-white/[0.07]"
       aria-label="Open Conductor"
     >
       {/* Workspace list */}
@@ -122,7 +148,7 @@ export function DesktopAppSidebar() {
         )}
 
         {workspaces.map((ws) => {
-          const expanded = expandedWsId === ws.id;
+          const expanded = expandedWsIds.has(ws.id);
           const isWsActive = activeId === ws.id;
 
           return (
@@ -130,27 +156,33 @@ export function DesktopAppSidebar() {
               {/* Workspace row */}
               <div
                 className={`group mx-2 flex items-center gap-1.5 rounded-lg px-2 py-1.5 ${
-                  isWsActive ? "bg-white/[0.05]" : "hover:bg-white/[0.03]"
+                  isWsActive
+                    ? "bg-black/[0.05] dark:bg-white/[0.05]"
+                    : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
                 }`}
               >
-                {/* Expand toggle + name */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setExpandedWsId((id) => (id === ws.id ? null : ws.id));
-                    nav(ws, `/w/${ws.id}`);
-                  }}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  onClick={() => toggleWorkspaceNav(ws.id)}
+                  className="flex h-7 w-6 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-black/[0.05] hover:text-muted-foreground dark:hover:bg-white/[0.06]"
+                  aria-expanded={expanded}
+                  aria-label={expanded ? `Collapse ${ws.name} navigation` : `Expand ${ws.name} navigation`}
                 >
                   <span
-                    className={`text-muted-foreground/60 transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
+                    className={`inline-block transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
                     aria-hidden
                   >
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M8 5l8 7-8 7V5z" />
                     </svg>
                   </span>
-                  <WorkspaceGlyph />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => nav(ws, `/w/${ws.id}`)}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
+                  <WorkspaceIdenticon workspaceId={ws.id} label={ws.name} />
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-none text-foreground">
                     {ws.name}
                   </span>
@@ -161,8 +193,17 @@ export function DesktopAppSidebar() {
                   <button
                     type="button"
                     title="Settings"
-                    onClick={(e) => { e.stopPropagation(); navigate(`/w/${ws.id}/settings/general`); }}
-                    className="rounded p-1 text-muted-foreground/60 hover:bg-white/[0.06] hover:text-foreground"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      switchWorkspace(ws);
+                      setExpandedWsIds((prev) => {
+                        const next = new Set(prev);
+                        next.add(ws.id);
+                        return next;
+                      });
+                      navigate(`/w/${ws.id}/settings/general`);
+                    }}
+                    className="rounded p-1 text-muted-foreground/60 hover:bg-black/[0.06] hover:text-foreground dark:hover:bg-white/[0.06]"
                   >
                     <Icon
                       d={
@@ -208,8 +249,8 @@ export function DesktopAppSidebar() {
                           transition={{ type: "spring", stiffness: 400, damping: 30 }}
                           className={`flex w-full items-center gap-2.5 rounded-md px-7 py-[5px] text-[12px] font-medium transition-colors ${
                             active
-                              ? "bg-white/[0.07] text-foreground"
-                              : "text-muted-foreground/70 hover:bg-white/[0.04] hover:text-foreground/80"
+                              ? "bg-black/[0.07] text-foreground dark:bg-white/[0.07]"
+                              : "text-muted-foreground/70 hover:bg-black/[0.04] hover:text-foreground/80 dark:hover:bg-white/[0.04]"
                           }`}
                         >
                           <svg
@@ -239,7 +280,7 @@ export function DesktopAppSidebar() {
         <button
           type="button"
           onClick={() => setCreateOpen(true)}
-          className="mx-2 mt-0.5 flex items-center gap-2 rounded-lg px-3 py-1.5 text-[12px] text-muted-foreground/50 hover:bg-white/[0.04] hover:text-muted-foreground transition-colors"
+          className="mx-2 mt-0.5 flex items-center gap-2 rounded-lg px-3 py-1.5 text-[12px] text-muted-foreground/50 transition-colors hover:bg-black/[0.04] hover:text-muted-foreground dark:hover:bg-white/[0.04]"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M12 5v14M5 12h14" strokeLinecap="round" />
@@ -249,10 +290,10 @@ export function DesktopAppSidebar() {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between border-t border-white/[0.05] px-3 py-2.5">
+      <div className="flex items-center justify-between border-t border-black/[0.06] px-3 py-2.5 dark:border-white/[0.05]">
         <button
           type="button"
-          className="rounded-lg p-1.5 text-muted-foreground/50 hover:bg-white/[0.06] hover:text-muted-foreground transition-colors"
+          className="rounded-lg p-1.5 text-muted-foreground/50 transition-colors hover:bg-black/[0.06] hover:text-muted-foreground dark:hover:bg-white/[0.06]"
           title="Open on GitHub"
           onClick={() => window.open("https://github.com/Shubham-Rasal/open-conductor", "_blank")}
         >
@@ -261,6 +302,24 @@ export function DesktopAppSidebar() {
             <path d="M9 18c-4.51 2-5-2-7-2" />
           </svg>
         </button>
+        <button
+          type="button"
+          className="rounded-lg p-1.5 text-muted-foreground/50 transition-colors hover:bg-black/[0.06] hover:text-muted-foreground dark:hover:bg-white/[0.06]"
+          title={colorScheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          aria-label={colorScheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          onClick={handleThemeToggle}
+        >
+          {colorScheme === "dark" ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" strokeLinecap="round" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
       </div>
 
       <CreateWorkspaceModal
@@ -268,6 +327,12 @@ export function DesktopAppSidebar() {
         onClose={() => setCreateOpen(false)}
         onCreated={(ws) => {
           setCreateOpen(false);
+          switchWorkspace(ws);
+          setExpandedWsIds((prev) => {
+            const next = new Set(prev);
+            next.add(ws.id);
+            return next;
+          });
           navigate(`/w/${ws.id}`);
         }}
       />

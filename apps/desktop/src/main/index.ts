@@ -2,6 +2,7 @@ import { existsSync } from "fs";
 import { app, BrowserWindow, nativeImage, shell, dialog } from "electron";
 import { join } from "path";
 import { autoUpdater } from "electron-updater";
+import { registerBundledRuntimeIpc, shutdownBundledStack } from "./bundled-runtime";
 import { registerGitCloneIpc, registerPickDirectoryIpc } from "./git-clone-ipc";
 
 function setupAutoUpdater(): void {
@@ -80,7 +81,10 @@ function createWindow(): void {
   }
 }
 
+let isHandlingBundledQuit = false;
+
 app.whenReady().then(() => {
+  registerBundledRuntimeIpc();
   registerGitCloneIpc();
   registerPickDirectoryIpc();
 
@@ -101,4 +105,13 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", (e) => {
+  e.preventDefault();
+  if (isHandlingBundledQuit) return;
+  isHandlingBundledQuit = true;
+  void shutdownBundledStack().finally(() => {
+    app.exit(0);
+  });
 });

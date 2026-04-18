@@ -1,12 +1,12 @@
 -- name: ListComments :many
 SELECT * FROM comments
-WHERE issue_id = $1
+WHERE issue_id = ?
 ORDER BY created_at ASC;
 
 -- name: CreateComment :one
-INSERT INTO comments (issue_id, author_id, author_type, content)
-VALUES ($1, $2, $3, $4)
+INSERT INTO comments (id, issue_id, author_id, author_type, content)
+VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: DeleteComment :exec
-DELETE FROM comments WHERE id = $1;
+DELETE FROM comments WHERE id = ?;
