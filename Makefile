@@ -1,4 +1,4 @@
-.PHONY: help dev dev-watch setup server server-watch desktop build desktop-bundle-go desktop-package test migrate-up migrate-down sqlc
+.PHONY: help dev dev-watch setup server server-watch desktop build desktop-bundle-go desktop-package desktop-package-dmg-arm64 test migrate-up migrate-down sqlc
 
 help: ## Show common targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -75,6 +75,12 @@ desktop-package: desktop-bundle-go ## Build workspace packages + Electron app fo
 	  exit 1 ;; \
 	esac
 	@echo "Done. Open the app under apps/desktop/dist/ (see electron-builder output above)."
+
+# macOS Apple Silicon .dmg for distribution (upload to GitHub Releases for /download/mac on the website)
+desktop-package-dmg-arm64: desktop-bundle-go
+	@cd $(ROOT) && pnpm exec turbo run build --filter=@open-conductor/core --filter=@open-conductor/ui --filter=@open-conductor/views
+	@cd $(ROOT)/apps/desktop && pnpm exec electron-vite build && pnpm exec electron-builder --config electron-builder.yml --mac dmg --arm64 --publish never
+	@echo "DMG(s) under $(ROOT)/apps/desktop/dist/"
 
 # ─── Database ─────────────────────────────────────────────────────────────────
 
