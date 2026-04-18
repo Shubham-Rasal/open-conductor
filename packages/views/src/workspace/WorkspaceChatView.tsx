@@ -15,7 +15,8 @@ import {
 } from "@open-conductor/core/chat";
 import { useCreateIssue } from "@open-conductor/core/issues";
 import { useCoreContext } from "@open-conductor/core/platform";
-import { agentListOptions } from "@open-conductor/core/agents";
+import { agentListOptions, useUpdateAgent } from "@open-conductor/core/agents";
+import { inferChatAgentProvider, presetsForProvider } from "@open-conductor/core/chat";
 import type { Agent, ProposedPlanIssue, ProposedTask, TaskStatus, TaskStageEvent } from "@open-conductor/core/types";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -908,6 +909,7 @@ export function WorkspaceChatView() {
 
   const { data: agents = [] } = useQuery(agentListOptions(apiClient, workspaceId));
   const postMsg = usePostWorkspaceMessage();
+  const updateAgent = useUpdateAgent();
   const cancelChat = useCancelWorkspaceChatStream();
   const createIssue = useCreateIssue();
 
@@ -924,6 +926,9 @@ export function WorkspaceChatView() {
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [mode, setMode] = useState<"plan" | "execute">("plan");
+  /** Model id for planning chat (synced from agent row; editable without waiting for refetch). */
+  const [planChatModel, setPlanChatModel] = useState("");
+  const [planChatModelCustom, setPlanChatModelCustom] = useState(false);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -985,6 +990,38 @@ export function WorkspaceChatView() {
   }, [mode, agents]);
 
   const selectedAgent = (agents as Agent[]).find((a) => a.id === selectedAgentId) ?? null;
+  const selectedProvider = selectedAgent ? inferChatAgentProvider(selectedAgent) : null;
+  const modelPresets = presetsForProvider(selectedProvider);
+
+  // Keep composer model string aligned with the agent row when switching agents or after API updates.
+  useEffect(() => {
+    if (!selectedAgentId || !selectedAgent) {
+      setPlanChatModel("");
+      setPlanChatModelCustom(false);
+      return;
+    }
+    const m = selectedAgent.model?.trim() ?? "";
+    setPlanChatModel(m);
+    const presetVals = new Set(presetsForProvider(selectedProvider).map((p) => p.value));
+    setPlanChatModelCustom(m !== "" && !presetVals.has(m));
+  }, [selectedAgentId, selectedAgent, selectedProvider]);
+
+  const persistPlanChatModel = useCallback(
+    async (next: string) => {
+      if (!selectedAgentId) return;
+      const trimmed = next.trim();
+      setPlanChatModel(trimmed);
+      try {
+        await updateAgent.mutateAsync({
+          agentId: selectedAgentId,
+          model: trimmed || null,
+        });
+      } catch {
+        /* query invalidation will reconcile */
+      }
+    },
+    [selectedAgentId, updateAgent]
+  );
   const waitingPost = pendingConvIds.has(conv.activeId);
   const streamingHere = streamingConvIds.has(conv.activeId);
   const isAiResponding = waitingPost || streamingHere;
@@ -1052,12 +1089,14 @@ export function WorkspaceChatView() {
         .slice(-24) // cap at 24 turns (~12 exchanges) to stay within context limits
         .map((m) => ({ role: m.role, content: m.content }));
 
+      const modelTrim = planChatModel.trim();
       const result = await postMsg.mutateAsync({
         content: t,
         respond_with_assistant: true,
         history: history.length > 0 ? history : undefined,
         mode,
         ...(selectedAgentId ? { agent_id: selectedAgentId } : {}),
+        ...(selectedAgentId && modelTrim ? { model: modelTrim } : {}),
       });
       if (result.stream_id) {
         useConvStore.getState().registerChatStream(workspaceId, result.stream_id, convId);
@@ -1302,8 +1341,10 @@ export function WorkspaceChatView() {
                     <span className="max-w-[110px] truncate">
                       {selectedAgent ? selectedAgent.name : "No agent"}
                     </span>
-                    {selectedAgent?.model && (
-                      <span className="max-w-[56px] truncate text-muted-foreground/60">{selectedAgent.model}</span>
+                    {selectedAgent && (planChatModel || selectedAgent.model) && (
+                      <span className="max-w-[72px] truncate font-mono text-muted-foreground/60">
+                        {planChatModel || selectedAgent.model}
+                      </span>
                     )}
                     <ChevronDownIcon className="h-2.5 w-2.5 text-muted-foreground" />
                   </button>
@@ -1356,6 +1397,67 @@ export function WorkspaceChatView() {
                     </div>
                   )}
                 </div>
+
+                {/* Model picker — Claude Code / Codex / OpenCode (persists on agent row) */}
+                {selectedAgent && (
+                  <div
+                    className="flex min-w-0 flex-wrap items-center gap-1"
+                    title="Model passed to the coding CLI for this chat"
+                  >
+                    {modelPresets.length > 0 ? (
+                      <>
+                        <select
+                          aria-label="Assistant model"
+                          disabled={updateAgent.isPending}
+                          className="max-w-[128px] cursor-pointer rounded-md border border-border/60 bg-background px-2 py-[5px] text-[11px] text-foreground outline-none hover:bg-accent disabled:opacity-50 sm:max-w-[158px]"
+                          value={planChatModelCustom ? "__custom__" : planChatModel}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "__custom__") {
+                              setPlanChatModelCustom(true);
+                              return;
+                            }
+                            setPlanChatModelCustom(false);
+                            void persistPlanChatModel(v);
+                          }}
+                        >
+                          <option value="">Default</option>
+                          {modelPresets.map((p) => (
+                            <option key={p.value} value={p.value}>
+                              {p.label}
+                            </option>
+                          ))}
+                          <option value="__custom__">Custom…</option>
+                        </select>
+                        {(planChatModelCustom ||
+                          (planChatModel !== "" &&
+                            !modelPresets.some((p) => p.value === planChatModel))) && (
+                          <input
+                            type="text"
+                            aria-label="Custom model id"
+                            value={planChatModel}
+                            onChange={(e) => setPlanChatModel(e.target.value)}
+                            onBlur={() => void persistPlanChatModel(planChatModel)}
+                            disabled={updateAgent.isPending}
+                            placeholder="model id"
+                            className="w-[min(160px,30vw)] min-w-0 rounded-md border border-border/60 bg-background px-2 py-[5px] font-mono text-[11px] text-foreground placeholder:text-muted-foreground/50"
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <input
+                        type="text"
+                        aria-label="Model id"
+                        value={planChatModel}
+                        onChange={(e) => setPlanChatModel(e.target.value)}
+                        onBlur={() => void persistPlanChatModel(planChatModel)}
+                        disabled={updateAgent.isPending}
+                        placeholder="Model (optional)"
+                        className="max-w-[min(200px,40vw)] min-w-[96px] rounded-md border border-border/60 bg-background px-2 py-[5px] font-mono text-[11px] text-foreground placeholder:text-muted-foreground/50"
+                      />
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Right */}

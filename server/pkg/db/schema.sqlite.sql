@@ -1,7 +1,7 @@
 -- Open Conductor — SQLite schema (single source of truth for sqlc + fresh installs)
 -- Enable foreign keys on the connection: _pragma=foreign_keys(1)
 
-CREATE TABLE workspaces (
+CREATE TABLE IF NOT EXISTS workspaces (
     id                  TEXT PRIMARY KEY,
     name                TEXT NOT NULL,
     slug                TEXT NOT NULL UNIQUE,
@@ -14,7 +14,7 @@ CREATE TABLE workspaces (
     working_directory   TEXT
 );
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id              TEXT PRIMARY KEY,
     email           TEXT NOT NULL UNIQUE,
     name            TEXT NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE users (
     updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE workspace_members (
+CREATE TABLE IF NOT EXISTS workspace_members (
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role         TEXT NOT NULL DEFAULT 'member',
@@ -32,7 +32,7 @@ CREATE TABLE workspace_members (
     PRIMARY KEY (workspace_id, user_id)
 );
 
-CREATE TABLE agents (
+CREATE TABLE IF NOT EXISTS agents (
     id                   TEXT PRIMARY KEY,
     workspace_id         TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     name                 TEXT NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE agents (
     spawn_mode           TEXT NOT NULL DEFAULT 'daemon'
 );
 
-CREATE TABLE agent_runtimes (
+CREATE TABLE IF NOT EXISTS agent_runtimes (
     id           TEXT PRIMARY KEY,
     agent_id     TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -57,7 +57,7 @@ CREATE TABLE agent_runtimes (
     UNIQUE (agent_id, workspace_id)
 );
 
-CREATE TABLE issues (
+CREATE TABLE IF NOT EXISTS issues (
     id                TEXT PRIMARY KEY,
     workspace_id      TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     number            INTEGER,
@@ -74,7 +74,7 @@ CREATE TABLE issues (
     updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE comments (
+CREATE TABLE IF NOT EXISTS comments (
     id          TEXT PRIMARY KEY,
     issue_id    TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
     author_id   TEXT NOT NULL REFERENCES users(id),
@@ -84,7 +84,7 @@ CREATE TABLE comments (
     author_type TEXT NOT NULL DEFAULT 'member' CHECK (author_type IN ('member', 'agent'))
 );
 
-CREATE TABLE agent_task_queue (
+CREATE TABLE IF NOT EXISTS agent_task_queue (
     id                 TEXT PRIMARY KEY,
     agent_id           TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     issue_id           TEXT REFERENCES issues(id) ON DELETE CASCADE,
@@ -103,12 +103,12 @@ CREATE TABLE agent_task_queue (
     workspace_id       TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE
 );
 
-CREATE TABLE workspace_issue_sequences (
+CREATE TABLE IF NOT EXISTS workspace_issue_sequences (
     workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
     next_number  INTEGER NOT NULL DEFAULT 1
 );
 
-CREATE TABLE workspace_messages (
+CREATE TABLE IF NOT EXISTS workspace_messages (
     id           TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     author_type  TEXT NOT NULL DEFAULT 'user',
@@ -118,7 +118,7 @@ CREATE TABLE workspace_messages (
     created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE workspace_env_vars (
+CREATE TABLE IF NOT EXISTS workspace_env_vars (
     id           TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     key          TEXT NOT NULL,
@@ -128,11 +128,11 @@ CREATE TABLE workspace_env_vars (
     UNIQUE (workspace_id, key)
 );
 
-CREATE INDEX idx_agent_task_queue_agent_status ON agent_task_queue(agent_id, status);
-CREATE INDEX idx_agent_task_queue_issue ON agent_task_queue(issue_id) WHERE issue_id IS NOT NULL;
-CREATE INDEX idx_issues_workspace_status ON issues(workspace_id, status);
-CREATE INDEX idx_issues_workspace_agent_assignee ON issues(workspace_id, agent_assignee_id);
-CREATE INDEX idx_issues_workspace_user_assignee ON issues(workspace_id, user_assignee_id);
-CREATE INDEX idx_issues_position ON issues(workspace_id, position);
-CREATE INDEX idx_task_queue_agent_workspace_status ON agent_task_queue(agent_id, workspace_id, status);
-CREATE INDEX idx_workspace_messages_workspace_created ON workspace_messages(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_task_queue_agent_status ON agent_task_queue(agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_agent_task_queue_issue ON agent_task_queue(issue_id) WHERE issue_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_issues_workspace_status ON issues(workspace_id, status);
+CREATE INDEX IF NOT EXISTS idx_issues_workspace_agent_assignee ON issues(workspace_id, agent_assignee_id);
+CREATE INDEX IF NOT EXISTS idx_issues_workspace_user_assignee ON issues(workspace_id, user_assignee_id);
+CREATE INDEX IF NOT EXISTS idx_issues_position ON issues(workspace_id, position);
+CREATE INDEX IF NOT EXISTS idx_task_queue_agent_workspace_status ON agent_task_queue(agent_id, workspace_id, status);
+CREATE INDEX IF NOT EXISTS idx_workspace_messages_workspace_created ON workspace_messages(workspace_id, created_at DESC);

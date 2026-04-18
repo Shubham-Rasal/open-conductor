@@ -2,13 +2,14 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 
 	"github.com/Shubham-Rasal/open-conductor/server/internal/runner"
 	db "github.com/Shubham-Rasal/open-conductor/server/pkg/db/generated"
@@ -50,7 +51,7 @@ func daemonRegister(s *Store) http.HandlerFunc {
 		}
 
 		agentID := parseUUID(req.AgentID)
-		if !agentID.Valid {
+		if agentID == "" {
 			http.Error(w, "invalid agent_id", http.StatusBadRequest)
 			return
 		}
@@ -76,7 +77,7 @@ func daemonRegister(s *Store) http.HandlerFunc {
 }
 
 // startDaemonForAgent upserts the runtime row for (agent, workspace), sets agent idle, starts the runner.
-func startDaemonForAgent(ctx context.Context, s *Store, agentID pgtype.UUID, provider string, deviceName *string, defaultModel *string) (db.AgentRuntime, error) {
+func startDaemonForAgent(ctx context.Context, s *Store, agentID string, provider string, deviceName *string, defaultModel *string) (db.AgentRuntime, error) {
 	if provider == "" {
 		provider = "claude"
 	}
@@ -95,10 +96,11 @@ func startDaemonForAgent(ctx context.Context, s *Store, agentID pgtype.UUID, pro
 		dn = &h
 	}
 	runtime, err := s.Q.UpsertAgentRuntime(ctx, db.UpsertAgentRuntimeParams{
+		ID:          uuid.New().String(),
 		AgentID:     agentID,
 		WorkspaceID: ag.WorkspaceID,
 		Provider:    provider,
-		DeviceName:  dn,
+		DeviceName:  sql.NullString{String: *dn, Valid: true},
 	})
 	if err != nil {
 		return db.AgentRuntime{}, err
@@ -109,11 +111,19 @@ func startDaemonForAgent(ctx context.Context, s *Store, agentID pgtype.UUID, pro
 	})
 	if defaultModel != nil && *defaultModel != "" {
 		_ = s.Q.SetAgentModel(ctx, db.SetAgentModelParams{
-			ID:    agentID,
-			Model: defaultModel,
+			ID: agentID,
+			Model: sql.NullString{
+				String: *defaultModel,
+				Valid:  true,
+			},
 		})
 	}
-	runner.Global.Start(ctx, s.Q, runtime.ID, agentID, ag.WorkspaceID, provider, ws.Type, ws.ConnectionUrl, Broadcast)
+	var conn *string
+	if ws.ConnectionUrl.Valid && ws.ConnectionUrl.String != "" {
+		u := ws.ConnectionUrl.String
+		conn = &u
+	}
+	runner.Global.Start(ctx, s.Q, runtime.ID, agentID, ag.WorkspaceID, provider, ws.Type, conn, Broadcast)
 	return runtime, nil
 }
 
@@ -122,8 +132,8 @@ func startDaemonForAgent(ctx context.Context, s *Store, agentID pgtype.UUID, pro
 func daemonHeartbeat(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			AgentID       string `json:"agent_id"`
-			WorkspaceID   string `json:"workspace_id"`
+			AgentID     string `json:"agent_id"`
+			WorkspaceID string `json:"workspace_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.AgentID == "" {
 			http.Error(w, "agent_id required", http.StatusBadRequest)
@@ -131,13 +141,13 @@ func daemonHeartbeat(s *Store) http.HandlerFunc {
 		}
 
 		agentID := parseUUID(body.AgentID)
-		if !agentID.Valid {
+		if agentID == "" {
 			http.Error(w, "invalid agent_id", http.StatusBadRequest)
 			return
 		}
 
 		workspaceID := parseUUID(body.WorkspaceID)
-		if !workspaceID.Valid {
+		if workspaceID == "" {
 			ag, err := s.Q.GetAgent(r.Context(), agentID)
 			if err != nil {
 				http.Error(w, "agent not found", http.StatusBadRequest)
@@ -228,11 +238,23 @@ func completeTask(s *Store) http.HandlerFunc {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		task, err := s.Q.CompleteTask(r.Context(), db.CompleteTaskParams{
-			ID:         id,
-			Output:     &req.Output,
-			SessionID:  &req.SessionID,
-			WorkDir:    &req.WorkDir,
-			BranchName: &req.BranchName,
+			ID: id,
+			Output: sql.NullString{
+				String: req.Output,
+				Valid:  true,
+			},
+			SessionID: sql.NullString{
+				String: req.SessionID,
+				Valid:  req.SessionID != "",
+			},
+			WorkDir: sql.NullString{
+				String: req.WorkDir,
+				Valid:  req.WorkDir != "",
+			},
+			BranchName: sql.NullString{
+				String: req.BranchName,
+				Valid:  req.BranchName != "",
+			},
 		})
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -254,8 +276,11 @@ func failTask(s *Store) http.HandlerFunc {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 
 		task, err := s.Q.FailTask(r.Context(), db.FailTaskParams{
-			ID:           id,
-			ErrorMessage: &body.Error,
+			ID: id,
+			ErrorMessage: sql.NullString{
+				String: body.Error,
+				Valid:  body.Error != "",
+			},
 		})
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)

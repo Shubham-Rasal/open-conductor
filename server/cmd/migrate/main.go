@@ -2,85 +2,69 @@ package main
 
 import (
 	"database/sql"
-	"flag"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
+
+	"github.com/Shubham-Rasal/open-conductor/server/internal/sqliteutil"
 )
 
 func main() {
 	_ = godotenv.Load()
 
-	dir := flag.String("dir", "pkg/db/migrations", "migrations directory")
-	flag.Parse()
-
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL is required")
+	schemaPath := os.Getenv("SCHEMA_PATH")
+	if schemaPath == "" {
+		schemaPath = filepath.Join("pkg", "db", "schema.sqlite.sql")
 	}
 
-	db, err := sql.Open("pgx", dbURL)
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Fatal("DATABASE_URL is required (e.g. file:./open_conductor.db)")
+	}
+
+	db, err := sqliteutil.Open(dsn)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
 	defer db.Close()
 
-	if err := runMigrations(db, *dir); err != nil {
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		log.Fatalf("read schema %s: %v", schemaPath, err)
+	}
+
+	if err := applySchema(db, string(schema)); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
 
 	fmt.Println("migrations applied successfully")
 }
 
-func runMigrations(db *sql.DB, dir string) error {
-	// Ensure schema_migrations table exists
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-		version TEXT PRIMARY KEY,
-		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-	)`)
-	if err != nil {
-		return fmt.Errorf("create migrations table: %w", err)
-	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return fmt.Errorf("read migrations dir: %w", err)
-	}
-
-	for _, entry := range entries {
-		name := entry.Name()
-		// Only run *.up.sql files
-		if len(name) < 7 || name[len(name)-7:] != ".up.sql" {
+func applySchema(db *sql.DB, schema string) error {
+	// Strip line comments starting with --
+	var b strings.Builder
+	for _, line := range strings.Split(schema, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "--") {
 			continue
 		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	clean := b.String()
 
-		var applied bool
-		row := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)`, name)
-		if err := row.Scan(&applied); err != nil {
-			return fmt.Errorf("check migration %s: %w", name, err)
-		}
-		if applied {
+	for _, stmt := range strings.Split(clean, ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
 			continue
 		}
-
-		content, err := os.ReadFile(fmt.Sprintf("%s/%s", dir, name))
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("exec: %w\n---\n%s\n---", err, stmt)
 		}
-
-		if _, err := db.Exec(string(content)); err != nil {
-			return fmt.Errorf("apply migration %s: %w", name, err)
-		}
-
-		if _, err := db.Exec(`INSERT INTO schema_migrations (version) VALUES ($1)`, name); err != nil {
-			return fmt.Errorf("record migration %s: %w", name, err)
-		}
-
-		fmt.Printf("applied: %s\n", name)
 	}
-
 	return nil
 }

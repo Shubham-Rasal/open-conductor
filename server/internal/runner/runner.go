@@ -5,6 +5,7 @@ package runner
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,9 +16,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	agentpkg "github.com/Shubham-Rasal/open-conductor/server/pkg/agent"
 	db "github.com/Shubham-Rasal/open-conductor/server/pkg/db/generated"
@@ -32,8 +30,8 @@ type Registry struct {
 var Global = &Registry{running: make(map[string]context.CancelFunc)}
 
 // Start launches a worker pool for one runtime if not already running.
-func (reg *Registry) Start(parentCtx context.Context, q *db.Queries, runtimeID, agentID, workspaceID pgtype.UUID, provider, workspaceType string, connectionURL *string, broadcast func([]byte)) {
-	key := fmt.Sprintf("%x", runtimeID.Bytes)
+func (reg *Registry) Start(parentCtx context.Context, q *db.Queries, runtimeID, agentID, workspaceID string, provider, workspaceType string, connectionURL *string, broadcast func([]byte)) {
+	key := runtimeID
 	reg.mu.Lock()
 	if _, exists := reg.running[key]; exists {
 		reg.mu.Unlock()
@@ -44,8 +42,8 @@ func (reg *Registry) Start(parentCtx context.Context, q *db.Queries, runtimeID, 
 	reg.mu.Unlock()
 
 	workDir := ""
-	if wsRow, err := q.GetWorkspace(parentCtx, workspaceID); err == nil && wsRow.WorkingDirectory != nil {
-		workDir = strings.TrimSpace(*wsRow.WorkingDirectory)
+	if wsRow, err := q.GetWorkspace(parentCtx, workspaceID); err == nil && wsRow.WorkingDirectory.Valid {
+		workDir = strings.TrimSpace(wsRow.WorkingDirectory.String)
 		if strings.HasPrefix(workDir, "~/") {
 			if home, err := os.UserHomeDir(); err == nil {
 				workDir = filepath.Join(home, strings.TrimPrefix(workDir, "~/"))
@@ -75,15 +73,15 @@ func (reg *Registry) Start(parentCtx context.Context, q *db.Queries, runtimeID, 
 		r.loop(ctx)
 	}()
 
-	slog.Info("runner started", "runtime_id", key, "agent_id", fmt.Sprintf("%x", agentID.Bytes), "provider", provider)
+	slog.Info("runner started", "runtime_id", key, "agent_id", agentID, "provider", provider)
 }
 
 // IsRunning reports whether a runner is active for this runtime id.
-func (reg *Registry) IsRunning(runtimeID pgtype.UUID) bool {
-	if !runtimeID.Valid {
+func (reg *Registry) IsRunning(runtimeID string) bool {
+	if runtimeID == "" {
 		return false
 	}
-	key := fmt.Sprintf("%x", runtimeID.Bytes)
+	key := runtimeID
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 	_, ok := reg.running[key]
@@ -91,8 +89,8 @@ func (reg *Registry) IsRunning(runtimeID pgtype.UUID) bool {
 }
 
 // Stop cancels the runner for the given runtime id (if running).
-func (reg *Registry) Stop(runtimeID pgtype.UUID) {
-	key := fmt.Sprintf("%x", runtimeID.Bytes)
+func (reg *Registry) Stop(runtimeID string) {
+	key := runtimeID
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
 	if cancel, ok := reg.running[key]; ok {
@@ -102,12 +100,12 @@ func (reg *Registry) Stop(runtimeID pgtype.UUID) {
 
 // StopAndWait cancels the runner and blocks until the registry slot is free (or timeout),
 // so Start can safely run again without no-oping while the old goroutine is still shutting down.
-func (reg *Registry) StopAndWait(runtimeID pgtype.UUID, timeout time.Duration) bool {
+func (reg *Registry) StopAndWait(runtimeID string, timeout time.Duration) bool {
 	reg.Stop(runtimeID)
-	if !runtimeID.Valid {
+	if runtimeID == "" {
 		return true
 	}
-	key := fmt.Sprintf("%x", runtimeID.Bytes)
+	key := runtimeID
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		reg.mu.Lock()
@@ -124,9 +122,9 @@ func (reg *Registry) StopAndWait(runtimeID pgtype.UUID, timeout time.Duration) b
 // Runner claims and executes tasks for one agent runtime.
 type Runner struct {
 	q               *db.Queries
-	runtimeID       pgtype.UUID
-	agentID         pgtype.UUID
-	workspaceID     pgtype.UUID
+	runtimeID       string
+	agentID         string
+	workspaceID     string
 	provider        string
 	workspaceType   string
 	connectionURL   *string
@@ -172,12 +170,12 @@ func (r *Runner) workerLoop(ctx context.Context) {
 			WorkspaceID: r.workspaceID,
 		})
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, sql.ErrNoRows) {
 				// Periodic idle heartbeat so operators know the runner is alive but has nothing to do.
 				if time.Since(lastIdleLog) >= idleLogInterval {
 					slog.Info("runner idle: no claimable tasks",
-						"agent_id", uuidStr(r.agentID),
-						"workspace_id", uuidStr(r.workspaceID),
+						"agent_id", r.agentID,
+						"workspace_id", r.workspaceID,
 						"idle_for", time.Since(idleSince).Round(time.Second).String(),
 					)
 					lastIdleLog = time.Now()
@@ -190,8 +188,8 @@ func (r *Runner) workerLoop(ctx context.Context) {
 				continue
 			}
 			slog.Warn("runner: claim task failed",
-				"agent_id", uuidStr(r.agentID),
-				"workspace_id", uuidStr(r.workspaceID),
+				"agent_id", r.agentID,
+				"workspace_id", r.workspaceID,
 				"err", err,
 			)
 			select {
@@ -209,29 +207,23 @@ func (r *Runner) workerLoop(ctx context.Context) {
 	}
 }
 
-func uuidStr(u pgtype.UUID) string {
-	b := u.Bytes
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
 func (r *Runner) setAgentStatus(ctx context.Context, status string) {
 	_ = r.q.UpdateAgentStatusOnly(ctx, db.UpdateAgentStatusOnlyParams{
 		ID:     r.agentID,
 		Status: status,
 	})
 	r.broadcastEvent("agent:status", map[string]any{
-		"agent_id": uuidStr(r.agentID),
+		"agent_id": r.agentID,
 		"status":   status,
 	})
 }
 
 func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
-	taskIDStr := uuidStr(task.ID)
-	agentIDStr := uuidStr(task.AgentID)
+	taskIDStr := task.ID
+	agentIDStr := task.AgentID
 	var issueIDStr string
 	if task.IssueID.Valid {
-		issueIDStr = uuidStr(task.IssueID)
+		issueIDStr = task.IssueID.String
 	}
 
 	slog.Info("executing task", "task_id", taskIDStr, "agent_id", agentIDStr)
@@ -245,7 +237,7 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		}
 	}()
 
-	wsIDStr := uuidStr(r.workspaceID)
+	wsIDStr := r.workspaceID
 	r.setIssueStatus(ctx, task, "in_progress")
 	r.broadcastEvent("task:stage", map[string]any{
 		"task_id":      taskIDStr,
@@ -256,8 +248,8 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 
 	wsRow, wsErr := r.q.GetWorkspace(ctx, r.workspaceID)
 	workDir := ""
-	if wsErr == nil && wsRow.WorkingDirectory != nil {
-		workDir = strings.TrimSpace(*wsRow.WorkingDirectory)
+	if wsErr == nil && wsRow.WorkingDirectory.Valid {
+		workDir = strings.TrimSpace(wsRow.WorkingDirectory.String)
 		if strings.HasPrefix(workDir, "~/") {
 			if home, err := os.UserHomeDir(); err == nil {
 				workDir = filepath.Join(home, strings.TrimPrefix(workDir, "~/"))
@@ -292,11 +284,11 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 		SystemPrompt: agentRow.Instructions,
 		Timeout:      30 * time.Minute,
 	}
-	if agentRow.Model != nil && *agentRow.Model != "" {
-		opts.Model = *agentRow.Model
+	if agentRow.Model.Valid && agentRow.Model.String != "" {
+		opts.Model = agentRow.Model.String
 	}
-	if lastSession != nil && *lastSession != "" {
-		opts.ResumeSessionID = *lastSession
+	if lastSession.Valid && lastSession.String != "" {
+		opts.ResumeSessionID = lastSession.String
 	}
 	if workDir != "" {
 		opts.Cwd = workDir
@@ -305,7 +297,7 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 	session, err := r.executor.Execute(execCtx, prompt, opts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			if _, cErr := r.q.CancelTask(ctx, task.ID); cErr != nil && !errors.Is(cErr, pgx.ErrNoRows) {
+			if _, cErr := r.q.CancelTask(ctx, task.ID); cErr != nil && !errors.Is(cErr, sql.ErrNoRows) {
 				slog.Warn("cancel task after abort", "task_id", taskIDStr, "err", cErr)
 			}
 			r.broadcastEvent("task:stage", map[string]any{
@@ -397,14 +389,16 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 	if result.Status == "completed" {
 		sessionID := result.SessionID
 		output := result.Output
-		workDir := ""
-		branch := ""
+		empty := ""
 		_, _ = r.q.CompleteTask(ctx, db.CompleteTaskParams{
-			ID:         task.ID,
-			Output:     &output,
-			SessionID:  &sessionID,
-			WorkDir:    &workDir,
-			BranchName: &branch,
+			ID: task.ID,
+			Output: sql.NullString{String: output, Valid: true},
+			SessionID: sql.NullString{
+				String: sessionID,
+				Valid:  sessionID != "",
+			},
+			WorkDir:    sql.NullString{String: empty, Valid: false},
+			BranchName: sql.NullString{String: empty, Valid: false},
 		})
 		r.setIssueStatus(ctx, task, "in_review")
 		r.broadcastEvent("task:stage", map[string]any{
@@ -426,16 +420,19 @@ func (r *Runner) executeTask(ctx context.Context, task db.AgentTaskQueue) {
 	}
 }
 
-func (r *Runner) failTask(ctx context.Context, taskID pgtype.UUID, issueIDStr string, errMsg string) {
-	_, _ = r.q.FailTask(ctx, db.FailTaskParams{ID: taskID, ErrorMessage: &errMsg})
+func (r *Runner) failTask(ctx context.Context, taskID string, issueIDStr string, errMsg string) {
+	_, _ = r.q.FailTask(ctx, db.FailTaskParams{
+		ID:           taskID,
+		ErrorMessage: sql.NullString{String: errMsg, Valid: true},
+	})
 	r.broadcastEvent("task:stage", map[string]any{
-		"task_id":      uuidStr(taskID),
+		"task_id":      taskID,
 		"issue_id":     issueIDStr,
-		"workspace_id": uuidStr(r.workspaceID),
+		"workspace_id": r.workspaceID,
 		"stage":        "failed",
 		"error":        errMsg,
 	})
-	slog.Error("task failed", "task_id", uuidStr(taskID), "error", errMsg)
+	slog.Error("task failed", "task_id", taskID, "error", errMsg)
 }
 
 func (r *Runner) setIssueStatus(ctx context.Context, task db.AgentTaskQueue, status string) {
@@ -443,7 +440,7 @@ func (r *Runner) setIssueStatus(ctx context.Context, task db.AgentTaskQueue, sta
 		return
 	}
 	updated, err := r.q.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
-		ID:     task.IssueID,
+		ID:     task.IssueID.String,
 		Status: status,
 	})
 	if err != nil {
@@ -480,13 +477,13 @@ func (r *Runner) buildPrompt(ctx context.Context, task db.AgentTaskQueue, workDi
 
 	var sb strings.Builder
 	sb.WriteString("You are working on issue")
-	if issue.Number != nil {
-		sb.WriteString(fmt.Sprintf(" #%d", *issue.Number))
+	if issue.Number.Valid {
+		sb.WriteString(fmt.Sprintf(" #%d", issue.Number.Int64))
 	}
 	sb.WriteString(fmt.Sprintf(": %s\n\n", issue.Title))
 
-	if issue.Description != nil && *issue.Description != "" {
-		sb.WriteString(*issue.Description)
+	if issue.Description.Valid && issue.Description.String != "" {
+		sb.WriteString(issue.Description.String)
 		sb.WriteString("\n\n")
 	}
 

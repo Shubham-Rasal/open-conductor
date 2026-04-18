@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -9,7 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 
 	"github.com/Shubham-Rasal/open-conductor/server/internal/runner"
 	agentpkg "github.com/Shubham-Rasal/open-conductor/server/pkg/agent"
@@ -35,7 +36,7 @@ func spawnManagedAgent(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
 		id := parseUUID(chi.URLParam(r, "agentId"))
-		if !wsID.Valid || !id.Valid {
+		if wsID == "" || id == "" {
 			http.Error(w, "invalid id", http.StatusBadRequest)
 			return
 		}
@@ -62,8 +63,9 @@ func spawnManagedAgent(s *Store) http.HandlerFunc {
 		}
 
 		dm := req.DefaultModel
-		if (dm == nil || (dm != nil && *dm == "")) && ag.Model != nil && *ag.Model != "" {
-			dm = ag.Model
+		if (dm == nil || *dm == "") && ag.Model.Valid && ag.Model.String != "" {
+			s := ag.Model.String
+			dm = &s
 		}
 
 		if _, err := s.Q.SetAgentSpawnMode(r.Context(), db.SetAgentSpawnModeParams{ID: id, SpawnMode: "managed"}); err != nil {
@@ -76,7 +78,7 @@ func spawnManagedAgent(s *Store) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		broadcastEvent("agent:status", map[string]any{"agent_id": formatUUID(id), "status": "idle"})
+		broadcastEvent("agent:status", map[string]any{"agent_id": id, "status": "idle"})
 		writeJSON(w, runtimeRow)
 	}
 }
@@ -90,10 +92,11 @@ func detectAgents(s *Store) http.HandlerFunc {
 		var remoteURL *string
 		if wsID := strings.TrimSpace(r.URL.Query().Get("workspace_id")); wsID != "" {
 			id := parseUUID(wsID)
-			if id.Valid {
+			if id != "" {
 				if ws, err := s.Q.GetWorkspace(r.Context(), id); err == nil {
-					if ws.Type == "remote" && ws.ConnectionUrl != nil && *ws.ConnectionUrl != "" {
-						remoteURL = ws.ConnectionUrl
+					if ws.Type == "remote" && ws.ConnectionUrl.Valid && ws.ConnectionUrl.String != "" {
+						u := ws.ConnectionUrl.String
+						remoteURL = &u
 					}
 				}
 			}
@@ -109,19 +112,19 @@ func detectAgents(s *Store) http.HandlerFunc {
 func listAgents(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
 
 		agents, err := s.Q.ListAgents(r.Context(), wsID)
 		if err != nil {
-			slog.Error("list agents", "workspace_id", formatUUID(wsID), "err", err)
+			slog.Error("list agents", "workspace_id", wsID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 
-		ids := make([]pgtype.UUID, 0, len(agents))
+		ids := make([]string, 0, len(agents))
 		for _, a := range agents {
 			ids = append(ids, a.ID)
 		}
@@ -129,12 +132,12 @@ func listAgents(s *Store) http.HandlerFunc {
 		if len(ids) > 0 {
 			rts, err := s.Q.ListAgentRuntimes(r.Context(), ids)
 			if err != nil {
-				slog.Error("list agent runtimes", "workspace_id", formatUUID(wsID), "err", err)
+				slog.Error("list agent runtimes", "workspace_id", wsID, "err", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 			for _, rt := range rts {
-				runtimeMap[formatUUID(rt.AgentID)] = rt
+				runtimeMap[rt.AgentID] = rt
 			}
 		}
 
@@ -152,7 +155,7 @@ type createAgentRequest struct {
 func createAgent(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
@@ -168,12 +171,18 @@ func createAgent(s *Store) http.HandlerFunc {
 			maxTasks = 6
 		}
 
+		model := sql.NullString{}
+		if req.Model != nil && strings.TrimSpace(*req.Model) != "" {
+			model = sql.NullString{String: strings.TrimSpace(*req.Model), Valid: true}
+		}
+
 		agent, err := s.Q.CreateAgent(r.Context(), db.CreateAgentParams{
+			ID:                 uuid.New().String(),
 			WorkspaceID:        wsID,
 			Name:               req.Name,
 			Instructions:       req.Instructions,
-			MaxConcurrentTasks: maxTasks,
-			Model:              req.Model,
+			MaxConcurrentTasks: int64(maxTasks),
+			Model:              model,
 		})
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -189,7 +198,7 @@ func createAgent(s *Store) http.HandlerFunc {
 func getAgent(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := parseUUID(chi.URLParam(r, "agentId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid agent id", http.StatusBadRequest)
 			return
 		}
@@ -211,8 +220,8 @@ type patchAgentRequest struct {
 	MaxConcurrentTasks *int32  `json:"max_concurrent_tasks"`
 }
 
-func sameWorkspace(agentWs, ws pgtype.UUID) bool {
-	return agentWs.Valid && ws.Valid && agentWs.Bytes == ws.Bytes
+func sameWorkspace(agentWs, ws string) bool {
+	return agentWs != "" && ws != "" && agentWs == ws
 }
 
 type testAgentIntegrationResponse struct {
@@ -227,12 +236,12 @@ type testAgentIntegrationResponse struct {
 func testAgentIntegration(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
 		id := parseUUID(chi.URLParam(r, "agentId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid agent id", http.StatusBadRequest)
 			return
 		}
@@ -247,7 +256,7 @@ func testAgentIntegration(s *Store) http.HandlerFunc {
 			AgentID:     id,
 			WorkspaceID: wsID,
 		})
-		runnerActive := rtErr == nil && rt.ID.Valid && runner.Global.IsRunning(rt.ID)
+		runnerActive := rtErr == nil && rt.ID != "" && runner.Global.IsRunning(rt.ID)
 		heartbeatFresh := false
 		dbSaysOnline := false
 		provider := ""
@@ -296,7 +305,7 @@ func disconnectAgent(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
 		id := parseUUID(chi.URLParam(r, "agentId"))
-		if !wsID.Valid || !id.Valid {
+		if wsID == "" || id == "" {
 			http.Error(w, "invalid id", http.StatusBadRequest)
 			return
 		}
@@ -314,7 +323,7 @@ func disconnectAgent(s *Store) http.HandlerFunc {
 			AgentID:     id,
 			WorkspaceID: wsID,
 		})
-		if rtErr == nil && rt.ID.Valid {
+		if rtErr == nil && rt.ID != "" {
 			runner.Global.Stop(rt.ID)
 		}
 		_ = s.Q.SetAgentRuntimeOfflineByAgent(r.Context(), db.SetAgentRuntimeOfflineByAgentParams{
@@ -322,7 +331,7 @@ func disconnectAgent(s *Store) http.HandlerFunc {
 			WorkspaceID: wsID,
 		})
 		_ = s.Q.UpdateAgentStatusOnly(r.Context(), db.UpdateAgentStatusOnlyParams{ID: id, Status: "offline"})
-		broadcastEvent("agent:status", map[string]any{"agent_id": formatUUID(id), "status": "offline"})
+		broadcastEvent("agent:status", map[string]any{"agent_id": id, "status": "offline"})
 		writeJSON(w, map[string]string{"status": "disconnected"})
 	}
 }
@@ -337,7 +346,7 @@ func reconnectAgent(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
 		id := parseUUID(chi.URLParam(r, "agentId"))
-		if !wsID.Valid || !id.Valid {
+		if wsID == "" || id == "" {
 			http.Error(w, "invalid id", http.StatusBadRequest)
 			return
 		}
@@ -364,8 +373,9 @@ func reconnectAgent(s *Store) http.HandlerFunc {
 		}
 
 		dm := req.DefaultModel
-		if (dm == nil || (dm != nil && *dm == "")) && ag.Model != nil && *ag.Model != "" {
-			dm = ag.Model
+		if (dm == nil || *dm == "") && ag.Model.Valid && ag.Model.String != "" {
+			s := ag.Model.String
+			dm = &s
 		}
 
 		runtimeRow, err := startDaemonForAgent(context.Background(), s, id, provider, req.DeviceName, dm)
@@ -373,7 +383,7 @@ func reconnectAgent(s *Store) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		broadcastEvent("agent:status", map[string]any{"agent_id": formatUUID(id), "status": "idle"})
+		broadcastEvent("agent:status", map[string]any{"agent_id": id, "status": "idle"})
 		writeJSON(w, runtimeRow)
 	}
 }
@@ -381,12 +391,12 @@ func reconnectAgent(s *Store) http.HandlerFunc {
 func patchAgent(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wsID := parseUUID(chi.URLParam(r, "workspaceId"))
-		if !wsID.Valid {
+		if wsID == "" {
 			http.Error(w, "invalid workspace id", http.StatusBadRequest)
 			return
 		}
 		id := parseUUID(chi.URLParam(r, "agentId"))
-		if !id.Valid {
+		if id == "" {
 			http.Error(w, "invalid agent id", http.StatusBadRequest)
 			return
 		}
@@ -404,10 +414,10 @@ func patchAgent(s *Store) http.HandlerFunc {
 		agent, err := s.Q.UpdateAgent(r.Context(), db.UpdateAgentParams{
 			ID:                 id,
 			WorkspaceID:        wsID,
-			Name:               req.Name,
-			Instructions:       req.Instructions,
-			MaxConcurrentTasks: req.MaxConcurrentTasks,
-			Model:              req.Model,
+			Name:               ptrToNullString(req.Name),
+			Instructions:       ptrToNullString(req.Instructions),
+			MaxConcurrentTasks: ptrToNullInt64(req.MaxConcurrentTasks),
+			Model:              ptrToNullString(req.Model),
 		})
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)

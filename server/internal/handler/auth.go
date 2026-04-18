@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,7 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	appMiddleware "github.com/Shubham-Rasal/open-conductor/server/internal/middleware"
@@ -46,7 +47,7 @@ func handleLogin(s *Store) http.HandlerFunc {
 
 		user, err := s.Q.GetUserByEmail(r.Context(), req.Email)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, sql.ErrNoRows) {
 				http.Error(w, "invalid credentials", http.StatusUnauthorized)
 				return
 			}
@@ -59,7 +60,7 @@ func handleLogin(s *Store) http.HandlerFunc {
 			return
 		}
 
-		token, err := signJWT(user.ID.String())
+		token, err := signJWT(user.ID)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -95,6 +96,7 @@ func handleRegister(s *Store) http.HandlerFunc {
 		}
 
 		user, err := s.Q.CreateUser(r.Context(), db.CreateUserParams{
+			ID:           uuid.New().String(),
 			Email:        req.Email,
 			Name:         req.Name,
 			PasswordHash: string(hash),
@@ -104,7 +106,7 @@ func handleRegister(s *Store) http.HandlerFunc {
 			return
 		}
 
-		token, err := signJWT(user.ID.String())
+		token, err := signJWT(user.ID)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return

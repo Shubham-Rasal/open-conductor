@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,13 +13,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 
 	"github.com/Shubham-Rasal/open-conductor/server/internal/handler"
 	appMiddleware "github.com/Shubham-Rasal/open-conductor/server/internal/middleware"
 	"github.com/Shubham-Rasal/open-conductor/server/internal/runner"
 	"github.com/Shubham-Rasal/open-conductor/server/internal/service"
+	"github.com/Shubham-Rasal/open-conductor/server/internal/sqliteutil"
 	db "github.com/Shubham-Rasal/open-conductor/server/pkg/db/generated"
 )
 
@@ -39,19 +41,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	pool, err := pgxpool.New(context.Background(), dbURL)
+	sqldb, err := sqliteutil.Open(dbURL)
 	if err != nil {
 		slog.Error("connect to db", "err", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
+	defer func() { _ = sqldb.Close() }()
 
-	if err := pool.Ping(context.Background()); err != nil {
+	if err := sqldb.PingContext(context.Background()); err != nil {
 		slog.Error("ping db", "err", err)
 		os.Exit(1)
 	}
 
-	queries := db.New(pool)
+	queries := db.New(sqldb)
 	taskSvc := service.NewTaskService(queries, handler.Broadcast)
 
 	// Bootstrap: ensure a guest user and default local workspace exist.
@@ -79,7 +81,12 @@ func main() {
 			return
 		}
 		for _, rt := range runtimes {
-			runner.Global.Start(context.Background(), queries, rt.ID, rt.AgentID, rt.WorkspaceID, rt.Provider, rt.WorkspaceType, rt.ConnectionUrl, handler.Broadcast)
+			var conn *string
+			if rt.ConnectionUrl.Valid {
+				s := rt.ConnectionUrl.String
+				conn = &s
+			}
+			runner.Global.Start(context.Background(), queries, rt.ID, rt.AgentID, rt.WorkspaceID, rt.Provider, rt.WorkspaceType, conn, handler.Broadcast)
 		}
 		slog.Info("resumed runners", "count", len(runtimes))
 	}()
@@ -115,7 +122,7 @@ func main() {
 	r.Use(appMiddleware.CORS())
 
 	jwtSecret := os.Getenv("JWT_SECRET")
-	guestUserIDStr := formatUUID(guestUser.ID.Bytes)
+	guestUserIDStr := guestUser.ID
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -130,7 +137,7 @@ func main() {
 		// Public: local config (workspace ID for guest mode)
 		r.Get("/local", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"workspace_id":"` + formatUUID(localWs.ID.Bytes) + `"}`))
+			_, _ = w.Write([]byte(`{"workspace_id":"` + localWs.ID + `"}`))
 		})
 
 		// Planning assistant tools (no JWT, no token — workspace + stream id in URL).
@@ -181,18 +188,17 @@ func bootstrapWorkspace(ctx context.Context, q *db.Queries) (db.Workspace, error
 	if err == nil {
 		return ws, nil
 	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return db.Workspace{}, err
+	}
 	return q.CreateWorkspace(ctx, db.CreateWorkspaceParams{
+		ID:                 uuid.New().String(),
 		Name:               "Local",
 		Slug:               "local",
 		Prefix:             "LOC",
-		Description:        nil,
+		Description:        sql.NullString{Valid: false},
 		Type:               "local",
-		ConnectionUrl:      nil,
-		WorkingDirectory:   nil,
+		ConnectionUrl:      sql.NullString{Valid: false},
+		WorkingDirectory:   sql.NullString{Valid: false},
 	})
-}
-
-func formatUUID(b [16]byte) string {
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

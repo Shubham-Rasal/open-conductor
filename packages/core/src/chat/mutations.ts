@@ -21,6 +21,8 @@ export function usePostWorkspaceMessage() {
       mode?: "plan" | "execute";
       /** Workspace agent id — server picks matching CLI (claude/codex/opencode). Omit for default. */
       agent_id?: string;
+      /** Optional model id for this run (overrides agent row if set). */
+      model?: string;
     }) =>
       apiClient.post<{ message: WorkspaceMessage; stream_id?: string }>(
         `/api/workspaces/${workspaceId}/messages`,

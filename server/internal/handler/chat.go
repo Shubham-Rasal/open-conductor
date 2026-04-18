@@ -171,6 +171,8 @@ type postMessageRequest struct {
 	// Optional workspace agent id — selects which local CLI (claude / codex / opencode) runs the chat on the server.
 	// When omitted, default discovery order applies (Claude first).
 	AgentID *string `json:"agent_id,omitempty"`
+	// Optional model id for this assistant turn (overrides the agent row when non-empty).
+	Model *string `json:"model,omitempty"`
 }
 
 func postWorkspaceMessage(s *Store) http.HandlerFunc {
@@ -234,11 +236,15 @@ func postWorkspaceMessage(s *Store) http.HandlerFunc {
 		if req.AgentID != nil {
 			chatAgentID = strings.TrimSpace(*req.AgentID)
 		}
+		modelOverride := ""
+		if req.Model != nil {
+			modelOverride = strings.TrimSpace(*req.Model)
+		}
 		runCtx, cancelRun := context.WithCancel(context.Background())
 		registerChatStreamCancel(streamID, wsID, cancelRun)
 		go func() {
 			defer unregisterChatStreamCancel(streamID)
-			runWorkspaceAssistant(runCtx, s, ws, userMsg, streamID, req.History, mode, chatAgentID)
+			runWorkspaceAssistant(runCtx, s, ws, userMsg, streamID, req.History, mode, chatAgentID, modelOverride)
 		}()
 
 		writeJSON(w, map[string]any{
@@ -301,8 +307,11 @@ func workspaceMessageJSON(m db.WorkspaceMessage) map[string]any {
 
 // ── Agentic assistant runner ───────────────────────────────────────────────────
 
-func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userMsg db.WorkspaceMessage, streamID string, history []historyMsg, mode string, chatAgentID string) {
+func runWorkspaceAssistant(ctx context.Context, s *Store, ws db.Workspace, userMsg db.WorkspaceMessage, streamID string, history []historyMsg, mode string, chatAgentID string, modelOverride string) {
 	preferProvider, preferModel := resolveChatToolPreference(ctx, s, ws.ID, chatAgentID)
+	if mo := strings.TrimSpace(modelOverride); mo != "" {
+		preferModel = mo
+	}
 	tool, path := pickChatAgentPreferring(ctx, preferProvider)
 	if path == "" {
 		slog.Warn("workspace chat: no agent CLI found")
