@@ -278,7 +278,7 @@ function TaskStreamLine({ m }: { m: TaskMessage }) {
 
   return (
     <div className="text-sm leading-relaxed text-foreground">
-      <Md className="text-sm">{m.content}</Md>
+      <Md>{m.content}</Md>
     </div>
   );
 }
