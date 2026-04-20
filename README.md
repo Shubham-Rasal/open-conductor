@@ -4,11 +4,9 @@ Open Conductor is a desktop app for managed local agent swarms.
 
 <img width="1512" height="950" alt="image" src="https://github.com/user-attachments/assets/e9ee193a-d24a-4b7c-a8fd-1c22201f3cb4" />
 
-
 I wanted something to manage my local agents and often times I find that I end up spinning up multiple ghostty windows and try to manage them.
 
 This app takes heavy inspiration from [Conductor](https://conductor.build/) and [Multica](https://multica.ai/).
-
 
 ## Architecture
 
@@ -130,13 +128,13 @@ A fully silent first launch for everyone requires **Developer ID signing + notar
 
 ## Environment variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | SQLite DSN, e.g. `file:./open_conductor.db` (see `internal/sqliteutil`) |
-| `PORT` | No | HTTP port (default `8080`) |
-| `JWT_SECRET` | No | JWT signing for auth routes |
-| `CORS_ORIGIN` | No | CORS allowlist for browser clients |
-| `OPENCODE_PATH` | No | Absolute path or name on `PATH` for the OpenCode binary (see also `MULTICA_OPENCODE_PATH` for compatibility) |
+| Variable        | Required | Description                                                                                                  |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`  | Yes      | SQLite DSN, e.g. `file:./open_conductor.db` (see `internal/sqliteutil`)                                      |
+| `PORT`          | No       | HTTP port (default `8080`)                                                                                   |
+| `JWT_SECRET`    | No       | JWT signing for auth routes                                                                                  |
+| `CORS_ORIGIN`   | No       | CORS allowlist for browser clients                                                                           |
+| `OPENCODE_PATH` | No       | Absolute path or name on `PATH` for the OpenCode binary (see also `MULTICA_OPENCODE_PATH` for compatibility) |
 
 See `.env.example` for a template.
 
@@ -150,6 +148,7 @@ See `.env.example` for a template.
 ## Scripts (root)
 
 ```sh
+pnpm install        # This is to install
 pnpm build          # turbo build
 pnpm dev            # turbo dev (all packages that define dev)
 pnpm lint           # turbo lint
@@ -168,3 +167,6 @@ Live CLI **integration** pings (Claude / Codex) are opt-in:
 ```sh
 INTEGRATION_AGENT=1 go test ./pkg/agent/... -run 'Integration.*Ping' -timeout=10m -v
 ```
+
+Note
+for local development, docker is needed.
