@@ -9,6 +9,7 @@ interface WorkspaceStore {
    * Sync the current workspace against a fresh list.
    * - `preferredId` **undefined**: keep `workspace` only if its id is still in `wsList`; otherwise clear (no auto-pick of first workspace).
    * - `preferredId` **string**: select that id if present, else clear invalid id from storage.
+   * If the id is missing from `wsList` but matches the in-memory workspace, keep it — the list can be briefly stale right after create/refetch.
    */
   hydrateWorkspace: (list: Workspace[], preferredId?: string | null) => Workspace | null;
   switchWorkspace: (ws: Workspace) => void;
@@ -38,6 +39,13 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       }
       const next = wsList.find((w) => w.id === want) ?? null;
       if (!next) {
+        // React Query can hand us a stale workspace list before the refetch that includes a
+        // newly created workspace. Clearing here would wipe `workspaceId` in CoreProvider and
+        // break agents detection (and other workspace-scoped queries) until the user re-selects
+        // a workspace — noticeable in packaged builds where I/O is slower than in dev.
+        if (prev.workspace?.id === want) {
+          return { workspace: prev.workspace };
+        }
         try {
           localStorage.removeItem(STORAGE_KEY);
         } catch {
