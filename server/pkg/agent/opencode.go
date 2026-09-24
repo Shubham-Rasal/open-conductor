@@ -25,8 +25,10 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	if execPath == "" {
 		execPath = "opencode"
 	}
-	if _, err := exec.LookPath(execPath); err != nil {
+	if resolved, err := lookPathWithFallback(execPath); err != nil {
 		return nil, fmt.Errorf("opencode executable not found at %q: %w", execPath, err)
+	} else {
+		execPath = resolved
 	}
 
 	timeout := opts.Timeout

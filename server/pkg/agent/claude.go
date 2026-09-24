@@ -24,8 +24,10 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	if execPath == "" {
 		execPath = "claude"
 	}
-	if _, err := exec.LookPath(execPath); err != nil {
+	if resolved, err := lookPathWithFallback(execPath); err != nil {
 		return nil, fmt.Errorf("claude executable not found at %q: %w", execPath, err)
+	} else {
+		execPath = resolved
 	}
 
 	timeout := opts.Timeout
