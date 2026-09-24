@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,7 +25,7 @@ func openCodeExecutablePath() string {
 			}
 			continue
 		}
-		if lp, err := exec.LookPath(p); err == nil {
+		if lp, err := lookPathWithFallback(p); err == nil {
 			return lp
 		}
 	}
@@ -37,9 +36,12 @@ func opencodeUserConfigPath() string {
 	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
 		return filepath.Join(xdg, "opencode", "opencode.json")
 	}
+	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
+		return filepath.Join(home, ".config", "opencode", "opencode.json")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.json")
+		return filepath.Join("", ".config", "opencode", "opencode.json")
 	}
 	return filepath.Join(home, ".config", "opencode", "opencode.json")
 }
@@ -50,9 +52,9 @@ type DetectedTool struct {
 	Path         string `json:"path"`
 	Version      string `json:"version"`
 	Label        string `json:"label"`
-	DefaultModel string `json:"default_model"`    // suggested model string for ExecOptions
-	Available    bool   `json:"available"`        // false if provider backend is unreachable
-	Reason       string `json:"reason,omitempty"` // why unavailable
+	DefaultModel string `json:"default_model"`     // suggested model string for ExecOptions
+	Available    bool   `json:"available"`         // false if provider backend is unreachable
+	Reason       string `json:"reason,omitempty"`  // why unavailable
 	Warning      string `json:"warning,omitempty"` // non-blocking hint (e.g. local API from opencode.json not reachable yet)
 }
 
@@ -66,7 +68,7 @@ func DetectAll(ctx context.Context, remoteBaseURL *string) []DetectedTool {
 	var found []DetectedTool
 
 	// ── Claude Code ──────────────────────────────────────────────────────────
-	if path, err := exec.LookPath("claude"); err == nil {
+	if path, err := lookPathWithFallback("claude"); err == nil {
 		version, _ := DetectVersion(ctx, path)
 		found = append(found, DetectedTool{
 			Provider:  "claude",
@@ -80,7 +82,7 @@ func DetectAll(ctx context.Context, remoteBaseURL *string) []DetectedTool {
 	// ── OpenCode ─────────────────────────────────────────────────────────────
 	opPath := openCodeExecutablePath()
 	if opPath == "" {
-		if p, err := exec.LookPath("opencode"); err == nil {
+		if p, err := lookPathWithFallback("opencode"); err == nil {
 			opPath = p
 		}
 	}
@@ -115,7 +117,7 @@ func DetectAll(ctx context.Context, remoteBaseURL *string) []DetectedTool {
 	}
 
 	// ── Codex ────────────────────────────────────────────────────────────────
-	if path, err := exec.LookPath("codex"); err == nil {
+	if path, err := lookPathWithFallback("codex"); err == nil {
 		version, _ := DetectVersion(ctx, path)
 		found = append(found, DetectedTool{
 			Provider:  "codex",

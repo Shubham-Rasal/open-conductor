@@ -47,7 +47,7 @@ func ListModelsForProvider(ctx context.Context, provider string) ([]ModelOption,
 func listOpencodeCLIModels(ctx context.Context) ([]ModelOption, error) {
 	execPath := openCodeExecutablePath()
 	if execPath == "" {
-		if p, err := exec.LookPath("opencode"); err == nil {
+		if p, err := lookPathWithFallback("opencode"); err == nil {
 			execPath = p
 		}
 	}

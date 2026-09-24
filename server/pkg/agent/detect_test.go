@@ -42,6 +42,7 @@ func TestCheckURLUnreachable(t *testing.T) {
 func TestProbeOpencodeNoConfigReturnsEmpty(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	model, baseURL, err := probeOpencode()
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +55,7 @@ func TestProbeOpencodeNoConfigReturnsEmpty(t *testing.T) {
 func TestProbeOpencodeInvalidJSONReturnsEmpty(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	cfgDir := filepath.Join(tmp, ".config", "opencode")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -74,6 +76,7 @@ func TestProbeOpencodeInvalidJSONReturnsEmpty(t *testing.T) {
 func TestProbeOpencodeExtracts(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	cfgDir := filepath.Join(tmp, ".config", "opencode")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
