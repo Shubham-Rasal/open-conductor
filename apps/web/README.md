@@ -118,7 +118,7 @@ Release metadata (tag, published date, asset size in the UI) comes from the GitH
 ## Download behavior
 
 - Primary CTA and nav emphasize **Download Open Conductor** for Mac (`/download/mac`).
-- **Learn how it works** points at the repo README quick start (build/run the full stack, including Windows and Linux from source when installers are not published here).
+- **Learn how it works** points at the site quick-start page (`/quick-start`), which mirrors the repo quick-start flow for building and running from source.
 
 ---
 

@@ -21,8 +21,6 @@ const MacIcon = () => (
 
 const GITHUB_REPO = process.env.GITHUB_REPO ?? "Shubham-Rasal/open-conductor";
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
-/** README quick start: clone, install deps, run server + desktop from source */
-const BUILD_FROM_SOURCE_URL = `${GITHUB_URL}/blob/main/README.md#quick-start`;
 
 export default async function Home() {
   const release = await fetchLatestRelease(false);
@@ -103,14 +101,9 @@ export default async function Home() {
               <span className={styles.btnMeta}>{formatBytes(macAsset.size)}</span>
             ) : null}
           </a>
-          <a
-            href={BUILD_FROM_SOURCE_URL}
-            className={styles.btnSecondary}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <Link href="/quick-start" className={styles.btnSecondary}>
             Learn how it works
-          </a>
+          </Link>
         </div>
 
        
